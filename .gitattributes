@@ -1,0 +1,6 @@
+# TruoraShared.xcframework is a large file, so we use Git LFS to handle it efficiently.
+# Rastrear el framework completo y sus binarios
+shared/truora/shared/build/XCFrameworks/release/TruoraShared.xcframework/** filter=lfs diff=lfs merge=lfs -text
+# Rastrear específicamente los binarios Mach-O dentro del framework
+shared/truora/shared/build/XCFrameworks/release/TruoraShared.xcframework/**/*.framework/TruoraShared filter=lfs diff=lfs merge=lfs -text
+shared/truora/shared/build/XCFrameworks/release/TruoraShared.xcframework/**/*.dSYM/** filter=lfs diff=lfs merge=lfs -text
