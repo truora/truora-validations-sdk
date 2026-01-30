@@ -24,9 +24,6 @@ let package = Package(
                 "TruoraCamera"
             ],
             path: "ios/validations/TruoraValidationsSDK/Sources",
-            resources: [
-                .process("../Resources")
-            ],
             swiftSettings: [
                 .define("SWIFT_PACKAGE")
             ]
@@ -36,10 +33,7 @@ let package = Package(
             dependencies: [
                 "TensorFlowLite"
             ],
-            path: "ios/validations/TruoraCamera/Sources",
-            resources: [
-                .process("../Resources")
-            ]
+            path: "ios/validations/TruoraCamera/Sources"
         ),
         .target(
             name: "TensorFlowLite",
