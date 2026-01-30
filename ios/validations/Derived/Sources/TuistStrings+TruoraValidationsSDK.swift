@@ -43,7 +43,7 @@ public enum TruoraValidationsSDKStrings: Sendable {
   }
   /// We have completed your verification
   public static let completedResultTitle = TruoraValidationsSDKStrings.tr("Localizable", "completed_result_title")
-  /// Any country
+  /// All
   public static let countryAll = TruoraValidationsSDKStrings.tr("Localizable", "country_all")
   /// Argentina
   public static let countryAr = TruoraValidationsSDKStrings.tr("Localizable", "country_ar")
@@ -63,6 +63,70 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let countrySv = TruoraValidationsSDKStrings.tr("Localizable", "country_sv")
   /// Venezuela
   public static let countryVe = TruoraValidationsSDKStrings.tr("Localizable", "country_ve")
+  /// Valid and issued in Chile
+  public static let descClForeignId = TruoraValidationsSDKStrings.tr("Localizable", "desc_cl_foreign_id")
+  /// From Chile, valid and current
+  public static let descClPassport = TruoraValidationsSDKStrings.tr("Localizable", "desc_cl_passport")
+  /// From Colombia, valid and current
+  public static let descCoPassport = TruoraValidationsSDKStrings.tr("Localizable", "desc_co_passport")
+  /// Tax Identification Number
+  public static let descCoTaxId = TruoraValidationsSDKStrings.tr("Localizable", "desc_co_tax_id")
+  /// Temporary National ID
+  public static let descCoTempId = TruoraValidationsSDKStrings.tr("Localizable", "desc_co_temp_id")
+  /// Valid and issued in Colombia
+  public static let descCoValidIssued = TruoraValidationsSDKStrings.tr("Localizable", "desc_co_valid_issued")
+  /// Mexican, valid and current
+  public static let descMxPassport = TruoraValidationsSDKStrings.tr("Localizable", "desc_mx_passport")
+  /// Valid and current
+  public static let descOriginalValid = TruoraValidationsSDKStrings.tr("Localizable", "desc_original_valid")
+  /// Original and in physical format
+  public static let descPhysicalOriginal = TruoraValidationsSDKStrings.tr("Localizable", "desc_physical_original")
+  /// Keep your original document handy
+  public static let descSvKeepHand = TruoraValidationsSDKStrings.tr("Localizable", "desc_sv_keep_hand")
+  /// Taxpayer ID
+  public static let descTaxpayerId = TruoraValidationsSDKStrings.tr("Localizable", "desc_taxpayer_id")
+  /// National Identity Document
+  public static let docArNationalId = TruoraValidationsSDKStrings.tr("Localizable", "doc_ar_national_id")
+  /// CNH
+  public static let docBrCnh = TruoraValidationsSDKStrings.tr("Localizable", "doc_br_cnh")
+  /// General Registry
+  public static let docBrGeneralReg = TruoraValidationsSDKStrings.tr("Localizable", "doc_br_general_reg")
+  /// ID Card (CPF)
+  public static let docBrNationalId = TruoraValidationsSDKStrings.tr("Localizable", "doc_br_national_id")
+  /// CNPJ
+  public static let docBrTaxId = TruoraValidationsSDKStrings.tr("Localizable", "doc_br_tax_id")
+  /// Identity Card
+  public static let docClNationalId = TruoraValidationsSDKStrings.tr("Localizable", "doc_cl_national_id")
+  /// Foreign ID
+  public static let docCoForeignId = TruoraValidationsSDKStrings.tr("Localizable", "doc_co_foreign_id")
+  /// National ID
+  public static let docCoNationalId = TruoraValidationsSDKStrings.tr("Localizable", "doc_co_national_id")
+  /// PPT (Temporal Protection Permit)
+  public static let docCoPpt = TruoraValidationsSDKStrings.tr("Localizable", "doc_co_ppt")
+  /// PPT (VEN)
+  public static let docCoPtp = TruoraValidationsSDKStrings.tr("Localizable", "doc_co_ptp")
+  /// Temporary ID
+  public static let docCoTempId = TruoraValidationsSDKStrings.tr("Localizable", "doc_co_temp_id")
+  /// Permanent/temporary residence
+  public static let docMxForeignId = TruoraValidationsSDKStrings.tr("Localizable", "doc_mx_foreign_id")
+  /// INE/IFE (CURP)
+  public static let docMxNationalId = TruoraValidationsSDKStrings.tr("Localizable", "doc_mx_national_id")
+  /// RFC
+  public static let docMxTaxId = TruoraValidationsSDKStrings.tr("Localizable", "doc_mx_tax_id")
+  /// Foreigner ID
+  public static let docPeForeignId = TruoraValidationsSDKStrings.tr("Localizable", "doc_pe_foreign_id")
+  /// National Identity Document
+  public static let docPeNationalId = TruoraValidationsSDKStrings.tr("Localizable", "doc_pe_national_id")
+  /// Temporary Stay Permit
+  public static let docPePtp = TruoraValidationsSDKStrings.tr("Localizable", "doc_pe_ptp")
+  /// RUC
+  public static let docPeTaxId = TruoraValidationsSDKStrings.tr("Localizable", "doc_pe_tax_id")
+  /// Residency card
+  public static let docSvForeignId = TruoraValidationsSDKStrings.tr("Localizable", "doc_sv_foreign_id")
+  /// Unique Identity Document (DUI)
+  public static let docSvNationalId = TruoraValidationsSDKStrings.tr("Localizable", "doc_sv_national_id")
+  /// Identity Card
+  public static let docVeNationalId = TruoraValidationsSDKStrings.tr("Localizable", "doc_ve_national_id")
   /// Verifying
   public static let documentAutocaptureLoadingVerifying = TruoraValidationsSDKStrings.tr("Localizable", "document_autocapture_loading_verifying")
   /// We are verifying the information\nThis may take a few seconds
@@ -139,6 +203,10 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let documentFeedbackExpiredDescription = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_expired_description")
   /// Document expired
   public static let documentFeedbackExpiredTitle = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_expired_title")
+  /// There may be reflections covering your face or your ID is too far from the camera.
+  public static let documentFeedbackFaceNotFoundDescription = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_face_not_found_description")
+  /// Face not clearly visible
+  public static let documentFeedbackFaceNotFoundTitle = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_face_not_found_title")
   /// Please try again
   public static let documentFeedbackGenericDescription = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_generic_description")
   /// Capture failed
@@ -151,13 +219,15 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let documentFeedbackNoDocumentDescription = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_no_document_description")
   /// No document detected
   public static let documentFeedbackNoDocumentTitle = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_no_document_title")
-  /// %@ attempts remaining
+  /// Retries available %@
   public static func documentFeedbackRetriesLeft(_ p1: Any) -> String {
     return TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_retries_left",String(describing: p1))
   }
-  /// Try again
+  /// Retries available
+  public static let documentFeedbackRetriesLeftPrefix = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_retries_left_prefix")
+  /// Take another photo
   public static let documentFeedbackRetry = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_retry")
-  /// View tips
+  /// Tips for taking a better photo
   public static let documentFeedbackTips = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_tips")
   /// Move further from the document
   public static let documentFeedbackTooCloseDescription = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_too_close_description")
@@ -201,62 +271,24 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let documentSelectionLoading = TruoraValidationsSDKStrings.tr("Localizable", "document_selection_loading")
   /// Choose your document type
   public static let documentSelectionTitle = TruoraValidationsSDKStrings.tr("Localizable", "document_selection_title")
-  /// CNH
-  public static let documentTypeCnh = TruoraValidationsSDKStrings.tr("Localizable", "document_type_cnh")
-  /// Carteira Nacional de Habilitação
-  public static let documentTypeCnhDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_cnh_desc")
-  /// Driver's License
+  /// Driver License
   public static let documentTypeDriverLicense = TruoraValidationsSDKStrings.tr("Localizable", "document_type_driver_license")
-  /// Vehicle driving permit
-  public static let documentTypeDriverLicenseDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_driver_license_desc")
   /// Foreign ID
   public static let documentTypeForeignId = TruoraValidationsSDKStrings.tr("Localizable", "document_type_foreign_id")
-  /// ID for foreign residents
-  public static let documentTypeForeignIdDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_foreign_id_desc")
-  /// General Registration
-  public static let documentTypeGeneralRegistration = TruoraValidationsSDKStrings.tr("Localizable", "document_type_general_registration")
-  /// General registration document
-  public static let documentTypeGeneralRegistrationDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_general_registration_desc")
   /// Identity Card
   public static let documentTypeIdentityCard = TruoraValidationsSDKStrings.tr("Localizable", "document_type_identity_card")
-  /// Personal identity card
-  public static let documentTypeIdentityCardDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_identity_card_desc")
-  /// Invoice
-  public static let documentTypeInvoice = TruoraValidationsSDKStrings.tr("Localizable", "document_type_invoice")
-  /// Tax invoice document
-  public static let documentTypeInvoiceDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_invoice_desc")
   /// National ID
   public static let documentTypeNationalId = TruoraValidationsSDKStrings.tr("Localizable", "document_type_national_id")
-  /// Official government-issued ID
-  public static let documentTypeNationalIdDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_national_id_desc")
-  /// Native National ID
-  public static let documentTypeNativeNationalId = TruoraValidationsSDKStrings.tr("Localizable", "document_type_native_national_id")
-  /// Indigenous community ID
-  public static let documentTypeNativeNationalIdDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_native_national_id_desc")
   /// Passport
   public static let documentTypePassport = TruoraValidationsSDKStrings.tr("Localizable", "document_type_passport")
-  /// International travel document
-  public static let documentTypePassportDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_passport_desc")
   /// PPT
   public static let documentTypePpt = TruoraValidationsSDKStrings.tr("Localizable", "document_type_ppt")
-  /// Permiso por Protección Temporal
-  public static let documentTypePptDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_ppt_desc")
   /// PTP
   public static let documentTypePtp = TruoraValidationsSDKStrings.tr("Localizable", "document_type_ptp")
-  /// Permiso Temporal de Permanencia
-  public static let documentTypePtpDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_ptp_desc")
   /// RUT
   public static let documentTypeRut = TruoraValidationsSDKStrings.tr("Localizable", "document_type_rut")
-  /// Registro Único Tributario
-  public static let documentTypeRutDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_rut_desc")
   /// Tax ID
   public static let documentTypeTaxId = TruoraValidationsSDKStrings.tr("Localizable", "document_type_tax_id")
-  /// Tax identification document
-  public static let documentTypeTaxIdDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_tax_id_desc")
-  /// Temporary National ID
-  public static let documentTypeTemporaryNationalId = TruoraValidationsSDKStrings.tr("Localizable", "document_type_temporary_national_id")
-  /// Temporary national identification
-  public static let documentTypeTemporaryNationalIdDesc = TruoraValidationsSDKStrings.tr("Localizable", "document_type_temporary_national_id_desc")
   /// Your verification was not approved
   public static let failureResultDescription = TruoraValidationsSDKStrings.tr("Localizable", "failure_result_description")
   /// We were unable to verify your identity

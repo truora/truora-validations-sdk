@@ -31,14 +31,28 @@ import SwiftUI
 // MARK: - Asset Catalogs
 
 public enum TruoraValidationsSDKAsset: Sendable {
+  public static let all = TruoraValidationsSDKImages(name: "all")
+  public static let ar = TruoraValidationsSDKImages(name: "ar")
+  public static let br = TruoraValidationsSDKImages(name: "br")
   public static let byTruoraDark = TruoraValidationsSDKImages(name: "by_truora_dark")
+  public static let cl = TruoraValidationsSDKImages(name: "cl")
+  public static let co = TruoraValidationsSDKImages(name: "co")
+  public static let cr = TruoraValidationsSDKImages(name: "cr")
+  public static let documentBack = TruoraValidationsSDKImages(name: "document_back")
+  public static let documentFront = TruoraValidationsSDKImages(name: "document_front")
   public static let documentIntro = TruoraValidationsSDKImages(name: "document_intro")
+  public static let documentLoadingIcon = TruoraValidationsSDKImages(name: "document_loading_icon")
+  public static let faceLoadingIcon = TruoraValidationsSDKImages(name: "face_loading_icon")
   public static let iconLock = TruoraValidationsSDKImages(name: "icon_lock")
   public static let logoTruora = TruoraValidationsSDKImages(name: "logo_truora")
+  public static let mx = TruoraValidationsSDKImages(name: "mx")
   public static let passiveIntro = TruoraValidationsSDKImages(name: "passive_intro")
+  public static let pe = TruoraValidationsSDKImages(name: "pe")
   public static let resultCompleted = TruoraValidationsSDKImages(name: "result_completed")
   public static let resultFailure = TruoraValidationsSDKImages(name: "result_failure")
   public static let resultSuccess = TruoraValidationsSDKImages(name: "result_success")
+  public static let sv = TruoraValidationsSDKImages(name: "sv")
+  public static let ve = TruoraValidationsSDKImages(name: "ve")
 }
 
 // MARK: - Implementation Details
