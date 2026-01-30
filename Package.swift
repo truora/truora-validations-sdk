@@ -24,8 +24,7 @@ let package = Package(
         .target(
             name: "TruoraValidationsSDK",
             dependencies: [
-                "TruoraCamera",
-                "TruoraShared"
+                "TruoraCamera"
             ],
             path: "ios/validations/TruoraValidationsSDK/Sources",
             swiftSettings: [
@@ -50,12 +49,6 @@ let package = Package(
                 "TensorFlowLiteC"
             ],
             path: "ios/validations/TensorFlowLite/Sources"
-        ),
-        // Binary targets
-        .binaryTarget(
-            name: "TruoraShared",
-            url: "https://github.com/truora/truora-validations-sdk/releases/download/0.0.1/TruoraShared.xcframework.zip",
-            checksum: "cf5010bca90438e7837a71a04d0c915e1ff219748fdd352a5a92ce03dcd5addb"
         ),
         .binaryTarget(
             name: "TensorFlowLiteC",
