@@ -6,16 +6,16 @@
 //
 
 import XCTest
-
-import TruoraShared
 @testable import TruoraValidationsSDK
 
-final class DocumentSelectionInteractorTests: XCTestCase {
-    func testFetchSupportedCountries_returnsAllSupportedCountriesExcludingAll() {
+@MainActor final class DocumentSelectionInteractorTests: XCTestCase {
+    func testFetchSupportedCountries_returnsAllSupportedCountries() async throws {
         let presenter = MockDocumentSelectionInteractorPresenter()
+        presenter.didLoadCountriesExpectation = expectation(description: "Countries loaded")
         let sut = DocumentSelectionInteractor(presenter: presenter)
 
         sut.fetchSupportedCountries()
+        try await fulfillment(of: [XCTUnwrap(presenter.didLoadCountriesExpectation)], timeout: 1.0)
 
         XCTAssertTrue(presenter.didLoadCountriesCalled)
         XCTAssertEqual(
@@ -28,12 +28,14 @@ final class DocumentSelectionInteractorTests: XCTestCase {
 
 // MARK: - Mocks
 
-private final class MockDocumentSelectionInteractorPresenter: DocumentSelectionInteractorToPresenter {
+@MainActor private final class MockDocumentSelectionInteractorPresenter: DocumentSelectionInteractorToPresenter {
     private(set) var didLoadCountriesCalled = false
-    private(set) var lastCountries: [TruoraCountry]?
+    private(set) var lastCountries: [NativeCountry]?
+    var didLoadCountriesExpectation: XCTestExpectation?
 
-    func didLoadCountries(_ countries: [TruoraCountry]) {
+    func didLoadCountries(_ countries: [NativeCountry]) {
         didLoadCountriesCalled = true
         lastCountries = countries
+        didLoadCountriesExpectation?.fulfill()
     }
 }

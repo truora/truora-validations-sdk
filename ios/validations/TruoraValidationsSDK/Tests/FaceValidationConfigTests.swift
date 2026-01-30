@@ -6,10 +6,9 @@
 //
 
 import XCTest
-
 @testable import TruoraValidationsSDK
 
-final class FaceValidationConfigTests: XCTestCase {
+@MainActor final class FaceValidationConfigTests: XCTestCase {
     var sut: Face!
 
     override func setUp() {
@@ -28,7 +27,7 @@ final class FaceValidationConfigTests: XCTestCase {
         // Then
         XCTAssertNil(sut.referenceFace, "Reference face should be nil by default")
         XCTAssertEqual(sut.similarityThreshold, 0.8, "Similarity threshold should default to 0.8")
-        XCTAssertTrue(sut.shouldWaitForResults, "Should wait for results by default")
+        XCTAssertFalse(sut.shouldWaitForResults, "Should not wait for results by default")
         XCTAssertTrue(sut.useAutocapture, "Should use autocapture by default")
         XCTAssertEqual(sut.timeoutSeconds, 60, "Timeout should default to 60 seconds")
     }

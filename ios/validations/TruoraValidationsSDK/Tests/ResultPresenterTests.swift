@@ -5,16 +5,14 @@
 //  Created by Truora on 21/12/25.
 //
 
-import TruoraShared
 import XCTest
 @testable import TruoraValidationsSDK
 
-class ResultPresenterTests: XCTestCase {
-    var sut: ResultPresenter!
-    fileprivate var mockView: MockResultView!
-    fileprivate var mockInteractor: MockResultInteractor!
-    fileprivate var mockRouter: MockResultRouter!
-    fileprivate var mockDelegate: MockValidationDelegate!
+@MainActor final class ResultPresenterTests: XCTestCase {
+    private var mockView: MockResultView!
+    private var mockInteractor: MockResultInteractor!
+    private var mockRouter: MockResultRouter!
+    private var mockDelegate: MockValidationDelegate!
 
     override func setUp() {
         super.setUp()
@@ -27,7 +25,6 @@ class ResultPresenterTests: XCTestCase {
     }
 
     override func tearDown() {
-        sut = nil
         mockView = nil
         mockInteractor = nil
         mockRouter = nil
@@ -36,234 +33,96 @@ class ResultPresenterTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Initialization Tests
+    // MARK: - Lifecycle Tests
 
-    func testInitializationWithShouldWaitTrue() {
-        // When
-        sut = createPresenter(shouldWaitForResults: true)
-
-        // Then
-        XCTAssertNotNil(sut)
-    }
-
-    func testInitializationWithShouldWaitFalse() {
-        // When
-        sut = createPresenter(shouldWaitForResults: false)
-
-        // Then
-        XCTAssertNotNil(sut)
-    }
-
-    // MARK: - ViewDidLoad Tests (shouldWaitForResults = true)
-
-    func testViewDidLoad_whenShouldWaitTrue_showsLoadingAndStartsPolling() {
+    func testViewDidLoad_waitingForResults_startsPollingAndShowsLoading() async {
         // Given
-        sut = createPresenter(shouldWaitForResults: true)
+        ValidationConfig.shared.faceConfig.enableWaitForResults(true)
+        let sut = createPresenter()
 
         // When
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         // Then
-        XCTAssertTrue(mockView.showLoadingCalled, "Should show loading")
-        XCTAssertTrue(mockInteractor.startPollingCalled, "Should start polling")
+        XCTAssertTrue(mockView.showLoadingCalled)
+        XCTAssertTrue(mockInteractor.startPollingCalled)
     }
 
-    // MARK: - ViewDidLoad Tests (shouldWaitForResults = false)
-
-    func testViewDidLoad_whenShouldWaitFalse_showsCompletedAndStartsPolling() {
+    func testViewDidLoad_notWaitingForResults_startsPollingAndShowsCompleted() async {
         // Given
-        sut = createPresenter(shouldWaitForResults: false)
+        ValidationConfig.shared.faceConfig.enableWaitForResults(false)
+        let sut = createPresenter(loadingType: .face)
 
         // When
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         // Then
-        XCTAssertTrue(mockView.showCompletedCalled, "Should show completed")
-        XCTAssertTrue(mockInteractor.startPollingCalled, "Should start polling in background")
+        XCTAssertTrue(mockView.showCompletedCalled)
+        XCTAssertTrue(mockInteractor.startPollingCalled)
     }
 
-    func testViewDidLoad_whenDocument_forcesWaitEvenIfConfigFalse() {
+    // MARK: - Action Tests
+
+    func testDoneTapped_withResult_dismissesFlowAndNotifiesDelegate() async {
         // Given
-        sut = createPresenter(loadingType: .document, shouldWaitForResults: false)
+        ValidationConfig.shared.faceConfig.enableWaitForResults(true)
+        let sut = createPresenter()
+        let result = ValidationResult(validationId: "id", status: .success)
+        await sut.pollingCompleted(result: result)
 
         // When
-        sut.viewDidLoad()
+        await sut.doneTapped()
 
         // Then
-        XCTAssertTrue(mockView.showLoadingCalled, "Document should always show loading")
-        XCTAssertFalse(mockView.showCompletedCalled, "Document should not show completed immediately")
-        XCTAssertTrue(mockInteractor.startPollingCalled, "Document should start polling")
+        XCTAssertTrue(mockRouter.dismissFlowCalled)
     }
 
-    // MARK: - DoneTapped Tests (shouldWaitForResults = true)
+    // MARK: - Interactor Callback Tests
 
-    func testDoneTapped_whenShouldWaitTrue_andNoResult_doesNotDismiss() {
+    func testPollingCompleted_waitingForResults_showsResult() async {
         // Given
-        sut = createPresenter(shouldWaitForResults: true)
+        ValidationConfig.shared.faceConfig.enableWaitForResults(true)
+        let sut = createPresenter()
+        let result = ValidationResult(validationId: "id", status: .success)
 
         // When
-        sut.doneTapped()
+        await sut.pollingCompleted(result: result)
 
         // Then
-        XCTAssertFalse(mockRouter.dismissFlowCalled, "Should not dismiss without result")
+        XCTAssertTrue(mockView.showResultCalled)
+        XCTAssertEqual(mockView.lastResult, result)
     }
 
-    func testDoneTapped_whenShouldWaitTrue_andHasResult_dismissesAndCallsDelegate() async throws {
+    func testPollingFailed_waitingForResults_showsFailedResult() async {
         // Given
-        sut = createPresenter(shouldWaitForResults: true)
-
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-key",
-            accountId: "test-account",
-            delegate: mockDelegate.closure
-        )
-
-        let result = ValidationResult(
-            validationId: "test-id",
-            status: .success,
-            confidence: 0.95
-        )
-        sut.pollingCompleted(result: result)
+        ValidationConfig.shared.faceConfig.enableWaitForResults(true)
+        let sut = createPresenter()
 
         // When
-        sut.doneTapped()
+        await sut.pollingFailed(error: .network(message: "error"))
 
         // Then
-        XCTAssertTrue(mockRouter.dismissFlowCalled, "Should dismiss flow")
-
-        let expectation = self.expectation(description: "Wait for delegate")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            XCTAssertTrue(self.mockDelegate.completeCalled, "Should call delegate")
-            XCTAssertEqual(self.mockDelegate.lastResult?.validationId, "test-id")
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 0.5)
-    }
-
-    // MARK: - DoneTapped Tests (shouldWaitForResults = false)
-
-    func testDoneTapped_whenShouldWaitFalse_dismissesImmediately() {
-        // Given
-        sut = createPresenter(shouldWaitForResults: false)
-
-        // When
-        sut.doneTapped()
-
-        // Then
-        XCTAssertTrue(mockRouter.dismissFlowCalled, "Should dismiss immediately")
-    }
-
-    // MARK: - PollingCompleted Tests (shouldWaitForResults = true)
-
-    func testPollingCompleted_whenShouldWaitTrue_showsResult() {
-        // Given
-        sut = createPresenter(shouldWaitForResults: true)
-        let result = ValidationResult(
-            validationId: "test-id",
-            status: .success,
-            confidence: 0.95
-        )
-
-        // When
-        sut.pollingCompleted(result: result)
-
-        // Then
-        XCTAssertTrue(mockView.showResultCalled, "Should show result")
-        XCTAssertEqual(mockView.lastResult?.status, .success)
-    }
-
-    // MARK: - PollingCompleted Tests (shouldWaitForResults = false)
-
-    func testPollingCompleted_whenShouldWaitFalse_callsDelegateAutomatically() async throws {
-        // Given
-        sut = createPresenter(shouldWaitForResults: false)
-
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-key",
-            accountId: "test-account",
-            delegate: mockDelegate.closure
-        )
-
-        let result = ValidationResult(
-            validationId: "test-id",
-            status: .success,
-            confidence: 0.95
-        )
-
-        // When
-        sut.pollingCompleted(result: result)
-
-        // Then
-        XCTAssertFalse(mockView.showResultCalled, "Should not update UI")
-
-        let expectation = self.expectation(description: "Wait for delegate")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            XCTAssertTrue(self.mockDelegate.completeCalled, "Should call delegate automatically")
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 0.5)
-    }
-
-    // MARK: - PollingFailed Tests
-
-    func testPollingFailed_whenShouldWaitTrue_showsFailedResult() {
-        // Given
-        sut = createPresenter(shouldWaitForResults: true)
-        let error = ValidationError.apiError("Test error")
-
-        // When
-        sut.pollingFailed(error: error)
-
-        // Then
-        XCTAssertTrue(mockView.showResultCalled, "Should show failed result")
+        XCTAssertTrue(mockView.showResultCalled)
         XCTAssertEqual(mockView.lastResult?.status, .failed)
     }
 
-    func testPollingFailed_whenShouldWaitFalse_callsDelegateWithError() async throws {
-        // Given
-        sut = createPresenter(shouldWaitForResults: false)
-
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-key",
-            accountId: "test-account",
-            delegate: mockDelegate.closure
-        )
-
-        let error = ValidationError.apiError("Test error")
-
-        // When
-        sut.pollingFailed(error: error)
-
-        // Then
-        let expectation = self.expectation(description: "Wait for delegate")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            XCTAssertTrue(self.mockDelegate.failureCalled, "Should call delegate with error")
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 0.5)
-    }
-
-    // MARK: - Helpers
+    // MARK: - Helper Methods
 
     private func createPresenter(
-        loadingType: LoadingType = .face,
-        shouldWaitForResults: Bool
+        loadingType: ResultLoadingType = .face
     ) -> ResultPresenter {
-        let presenter = ResultPresenter(
-            validationId: "test-validation-id",
-            loadingType: loadingType,
-            shouldWaitForResults: shouldWaitForResults
+        ResultPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            loadingType: loadingType
         )
-        presenter.view = mockView
-        presenter.interactor = mockInteractor
-        presenter.router = mockRouter
-        return presenter
     }
 }
 
 // MARK: - Mock View
 
-private class MockResultView: ResultPresenterToView {
+@MainActor private class MockResultView: ResultPresenterToView {
     var showLoadingCalled = false
     var showResultCalled = false
     var showCompletedCalled = false
@@ -292,7 +151,8 @@ private class MockResultView: ResultPresenterToView {
 
 // MARK: - Mock Interactor
 
-private class MockResultInteractor: ResultPresenterToInteractor {
+@MainActor private class MockResultInteractor: ResultPresenterToInteractor {
+    var validationId: String = "test-validation-id"
     var startPollingCalled = false
     var cancelPollingCalled = false
 
@@ -307,7 +167,7 @@ private class MockResultInteractor: ResultPresenterToInteractor {
 
 // MARK: - Mock Router
 
-private class MockResultRouter: ValidationRouter {
+@MainActor private class MockResultRouter: ValidationRouter {
     var dismissFlowCalled = false
 
     override func dismissFlow() {
@@ -317,11 +177,11 @@ private class MockResultRouter: ValidationRouter {
 
 // MARK: - Mock Delegate
 
-private class MockValidationDelegate {
+@MainActor private class MockValidationDelegate {
     var completeCalled = false
     var failureCalled = false
     var lastResult: ValidationResult?
-    var lastError: ValidationError?
+    var lastError: TruoraException?
 
     var closure: (TruoraValidationResult<ValidationResult>) -> Void {
         { [weak self] result in

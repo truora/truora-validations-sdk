@@ -6,18 +6,23 @@
 //
 
 import Foundation
-import TruoraShared
 
 final class ResultInteractor {
     weak var presenter: ResultInteractorToPresenter?
 
-    private let validationId: String
-    private let loadingType: LoadingType
+    let validationId: String
+    private let loadingType: ResultLoadingType
     private var pollingTask: Task<Void, Never>?
+    private let timeProvider: TimeProvider
 
-    init(validationId: String, loadingType: LoadingType = .face) {
+    init(
+        validationId: String,
+        loadingType: ResultLoadingType = .face,
+        timeProvider: TimeProvider = RealTimeProvider()
+    ) {
         self.validationId = validationId
         self.loadingType = loadingType
+        self.timeProvider = timeProvider
     }
 
     deinit {
@@ -64,16 +69,15 @@ private extension ResultInteractor {
         status.lowercased() != "pending"
     }
 
-    func fetchValidationDetail(apiClient: TruoraValidations) async throws -> ValidationDetailResponse {
-        let response = try await apiClient.validations.getValidation(validationId: validationId)
-        return try await SwiftKTORHelper.parseResponse(response, as: ValidationDetailResponse.self)
+    func fetchValidationDetail(apiClient: TruoraAPIClient) async throws -> NativeValidationDetailResponse {
+        try await apiClient.getValidation(validationId: validationId)
     }
 
     func performPolling() async {
         guard let apiClient = ValidationConfig.shared.apiClient else {
-            await MainActor.run { [weak self] in
-                self?.presenter?.pollingFailed(error: .invalidConfiguration("API client not configured"))
-            }
+            await presenter?.pollingFailed(
+                error: .sdk(SDKError(type: .invalidConfiguration, details: "API client not configured"))
+            )
             return
         }
 
@@ -86,29 +90,37 @@ private extension ResultInteractor {
                 return
             }
 
-            await MainActor.run { [weak self] in
-                self?.presenter?.pollingCompleted(result: result)
-            }
+            await presenter?.pollingCompleted(result: result)
         } catch is CancellationError {
             print("⚠️ ResultInteractor: Polling task was cancelled")
-        } catch let error as ValidationError {
+        } catch let error as TruoraException {
             guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                self?.presenter?.pollingFailed(error: error)
-            }
+            await presenter?.pollingFailed(error: error)
+        } catch let error as DecodingError {
+            // JSON parsing errors
+            guard !Task.isCancelled else { return }
+            await presenter?.pollingFailed(
+                error: .sdk(
+                    SDKError(
+                        type: .internalError,
+                        details: "Failed to parse server response: \(error.localizedDescription)"
+                    )
+                )
+            )
         } catch {
+            // Network and other errors
             guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                self?.presenter?.pollingFailed(error: .apiError(error.localizedDescription))
-            }
+            await presenter?.pollingFailed(
+                error: .network(message: "API request failed: \(error.localizedDescription)")
+            )
         }
     }
 
-    func pollForResult(apiClient: TruoraValidations) async throws -> ValidationResult {
+    func pollForResult(apiClient: TruoraAPIClient) async throws -> ValidationResult {
         let backoffIntervals = getBackoffIntervals()
 
         if loadingType == .document {
-            try await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+            try await timeProvider.sleep(nanoseconds: 1_000_000_000) // 1s
         }
 
         for (attempt, interval) in backoffIntervals.enumerated() {
@@ -136,17 +148,20 @@ private extension ResultInteractor {
 
             // Sleep throws CancellationError if task is cancelled, which is expected behavior
             if attempt < backoffIntervals.count - 1 {
-                try await Task.sleep(nanoseconds: interval)
+                try await timeProvider.sleep(nanoseconds: interval)
             }
         }
 
         print("❌ ResultInteractor: Polling timeout after \(backoffIntervals.count) attempts")
-        throw ValidationError.apiError(
-            "Validation processing timeout. Please check back later."
+        throw TruoraException.sdk(
+            SDKError(
+                type: .identityProcessResultsTimedOut,
+                details: "Validation processing timeout. Please check back later."
+            )
         )
     }
 
-    func createValidationResult(from validationDetail: ValidationDetailResponse) -> ValidationResult {
+    func createValidationResult(from validationDetail: NativeValidationDetailResponse) -> ValidationResult {
         let status: ValidationStatus = switch validationDetail.validationStatus.lowercased() {
         case "success":
             .success

@@ -13,7 +13,7 @@ import Foundation
 /// ```swift
 /// let ref1 = try ReferenceFace.from("https://example.com/face.jpg")
 /// let ref2 = try ReferenceFace.from("/path/to/file.jpg")
-/// let ref3 = ReferenceFace.from(myData)
+/// let ref3 = try ReferenceFace.from(myData)
 ///
 /// // Get URL for upload (can be remote URL or local file):
 /// let url = ref1.url
@@ -42,10 +42,10 @@ public final class ReferenceFace {
     ///
     /// - Parameter source: URL string or file path
     /// - Returns: A ReferenceFace instance
-    /// - Throws: ReferenceFaceError.invalidArgument if source is empty
+    /// - Throws: TruoraException.sdk with .nullParameter if source is empty
     public static func from(_ source: String) throws -> ReferenceFace {
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ReferenceFaceError.invalidArgument("Source cannot be null or empty")
+            throw TruoraException.sdk(SDKError(type: .nullParameter, details: "Source cannot be null or empty"))
         }
 
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -69,10 +69,10 @@ public final class ReferenceFace {
     ///
     /// - Parameter filePath: File path string
     /// - Returns: A ReferenceFace instance
-    /// - Throws: ReferenceFaceError.invalidArgument if path is empty
+    /// - Throws: TruoraException.sdk with .nullParameter if path is empty
     public static func from(filePath: String) throws -> ReferenceFace {
         guard !filePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ReferenceFaceError.invalidArgument("Path cannot be null or empty")
+            throw TruoraException.sdk(SDKError(type: .nullParameter, details: "Path cannot be null or empty"))
         }
         return ReferenceFace(url: URL(fileURLWithPath: filePath))
     }
@@ -98,7 +98,7 @@ public final class ReferenceFace {
         }
 
         guard let outputStream = OutputStream(url: tempURL, append: false) else {
-            throw ReferenceFaceError.conversionFailed("Failed to create output stream")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Failed to create output stream"))
         }
 
         outputStream.open()
@@ -112,7 +112,7 @@ public final class ReferenceFace {
             let bytesRead = stream.read(buffer, maxLength: bufferSize)
             if bytesRead < 0 {
                 try? FileManager.default.removeItem(at: tempURL)
-                throw ReferenceFaceError.conversionFailed("Failed to read from InputStream")
+                throw TruoraException.sdk(SDKError(type: .internalError, details: "Failed to read from InputStream"))
             }
             if bytesRead == 0 {
                 break
@@ -121,7 +121,7 @@ public final class ReferenceFace {
             let bytesWritten = outputStream.write(buffer, maxLength: bytesRead)
             if bytesWritten < 0 {
                 try? FileManager.default.removeItem(at: tempURL)
-                throw ReferenceFaceError.conversionFailed("Failed to write to temporary file")
+                throw TruoraException.sdk(SDKError(type: .internalError, details: "Failed to write to temporary file"))
             }
         }
 
@@ -132,7 +132,8 @@ public final class ReferenceFace {
     ///
     /// - Parameter data: Data containing image
     /// - Returns: A ReferenceFace instance
-    public static func from(_ data: Data) -> ReferenceFace {
+    /// - Throws: ReferenceFaceError.conversionFailed if data cannot be written to temp file
+    public static func from(_ data: Data) throws -> ReferenceFace {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("jpg")
@@ -141,7 +142,9 @@ public final class ReferenceFace {
             try data.write(to: tempURL, options: .atomic)
             return ReferenceFace(url: tempURL, isTemporary: true)
         } catch {
-            fatalError("Failed to write to temporary directory: \(error)")
+            throw TruoraException.sdk(
+                SDKError(type: .internalError, details: "Failed to write to temporary directory: \(error)")
+            )
         }
     }
 }

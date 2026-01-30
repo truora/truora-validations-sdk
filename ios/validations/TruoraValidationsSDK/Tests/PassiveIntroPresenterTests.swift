@@ -6,12 +6,11 @@
 //
 
 import XCTest
-
 @testable import TruoraValidationsSDK
 
 /// Tests for PassiveIntroPresenter following VIPER architecture
 /// Ensures proper separation of concerns and protocol-based communication
-final class PassiveIntroPresenterTests: XCTestCase {
+@MainActor final class PassiveIntroPresenterTests: XCTestCase {
     // MARK: - Properties
 
     private var sut: PassiveIntroPresenter!
@@ -48,9 +47,9 @@ final class PassiveIntroPresenterTests: XCTestCase {
 
     // MARK: - View Lifecycle Tests
 
-    func testViewDidLoad_doesNotCrash() {
+    func testViewDidLoad_doesNotCrash() async {
         // When
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         // Then
         XCTAssertNotNil(sut, "Presenter should remain initialized after viewDidLoad")
@@ -58,12 +57,12 @@ final class PassiveIntroPresenterTests: XCTestCase {
 
     // MARK: - Start Validation Tests
 
-    func testStartTapped_withoutAccountId_showsError() {
+    func testStartTapped_withoutAccountId_showsError() async {
         // Given
         XCTAssertNil(ValidationConfig.shared.accountId, "Account ID should be nil initially")
 
         // When
-        sut.startTapped()
+        await sut.startTapped()
 
         // Then
         XCTAssertTrue(mockView.showErrorCalled, "Should show error when account ID is missing")
@@ -90,7 +89,7 @@ final class PassiveIntroPresenterTests: XCTestCase {
         )
 
         // When
-        sut.startTapped()
+        await sut.startTapped()
 
         // Then
         XCTAssertTrue(mockView.showErrorCalled, "Should show error when interactor is nil")
@@ -121,10 +120,10 @@ final class PassiveIntroPresenterTests: XCTestCase {
         }
 
         // When
-        sut.startTapped()
+        await sut.startTapped()
 
         // Then - wait for actual completion
-        wait(for: [enrollmentExpectation, validationExpectation], timeout: 1.0, enforceOrder: true)
+        await fulfillment(of: [enrollmentExpectation, validationExpectation], timeout: 1.0, enforceOrder: true)
 
         XCTAssertTrue(mockView.showLoadingCalled, "Should show loading when starting validation")
         XCTAssertTrue(
@@ -174,10 +173,10 @@ final class PassiveIntroPresenterTests: XCTestCase {
         }
 
         // When
-        sut.startTapped()
+        await sut.startTapped()
 
         // Then - wait for actual completion with enforced order
-        wait(for: [enrollmentExpectation, validationExpectation], timeout: 1.0, enforceOrder: true)
+        await fulfillment(of: [enrollmentExpectation, validationExpectation], timeout: 1.0, enforceOrder: true)
 
         XCTAssertTrue(mockView.showLoadingCalled, "Should show loading")
         XCTAssertTrue(mockInteractor.enrollmentCompletedCalled, "Should call enrollmentCompleted")
@@ -204,17 +203,13 @@ final class PassiveIntroPresenterTests: XCTestCase {
         }
 
         // When
-        sut.startTapped()
+        await sut.startTapped()
 
         // Then - wait for enrollment to fail
-        wait(for: [enrollmentExpectation], timeout: 1.0)
+        await fulfillment(of: [enrollmentExpectation], timeout: 1.0)
 
         // Give time for error handling to propagate
-        let errorHandlingExpectation = expectation(description: "Error handling")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            errorHandlingExpectation.fulfill()
-        }
-        wait(for: [errorHandlingExpectation], timeout: 1.0)
+        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
 
         XCTAssertTrue(mockView.showLoadingCalled, "Should show loading initially")
         XCTAssertTrue(mockInteractor.enrollmentCompletedCalled, "Should call enrollmentCompleted")
@@ -224,9 +219,9 @@ final class PassiveIntroPresenterTests: XCTestCase {
 
     // MARK: - Cancel Tests
 
-    func testCancelTapped_callsRouter() {
+    func testCancelTapped_callsRouter() async {
         // When
-        sut.cancelTapped()
+        await sut.cancelTapped()
 
         // Then
         XCTAssertTrue(
@@ -237,18 +232,17 @@ final class PassiveIntroPresenterTests: XCTestCase {
 
     // MARK: - Validation Created Tests
 
-    func testValidationCreated_withValidResponse_navigatesToPassiveCapture() {
+    func testValidationCreated_withValidResponse_navigatesToPassiveCapture() async {
         // Given
         let mockResponse = MockResponseBuilder.validationCreateResponse(
             validationId: "mock-validation-id",
-            accountId: "test-account-id",
             instructions: MockResponseBuilder.validationInstructions(
                 fileUploadLink: "https://example.com/upload"
             )
         )
 
         // When
-        sut.validationCreated(response: mockResponse)
+        await sut.validationCreated(response: mockResponse)
 
         // Then
         XCTAssertTrue(mockView.hideLoadingCalled, "Should hide loading after validation created")
@@ -268,7 +262,7 @@ final class PassiveIntroPresenterTests: XCTestCase {
         )
     }
 
-    func testValidationCreated_withNilInstructions_navigatesWithNilUploadUrl() {
+    func testValidationCreated_withNilInstructions_navigatesWithNilUploadUrl() async {
         // Given
         let mockResponse = MockResponseBuilder.validationCreateResponse(
             validationId: "mock-validation-id",
@@ -276,7 +270,7 @@ final class PassiveIntroPresenterTests: XCTestCase {
         )
 
         // When
-        sut.validationCreated(response: mockResponse)
+        await sut.validationCreated(response: mockResponse)
 
         // Then
         XCTAssertTrue(mockView.hideLoadingCalled, "Should hide loading")
@@ -287,16 +281,16 @@ final class PassiveIntroPresenterTests: XCTestCase {
         XCTAssertNil(mockRouter.lastUploadUrl, "Upload URL should be nil when instructions are nil")
     }
 
-    func testValidationCreated_whenRouterDeallocated_showsError() {
+    func testValidationCreated_whenRouterDeallocated_showsError() async throws {
         // Given
         // Create a weak reference scenario by using a temporary router
         var tempRouter: MockPassiveIntroRouter? = MockPassiveIntroRouter(
             navigationController: UINavigationController()
         )
-        sut = PassiveIntroPresenter(
+        sut = try PassiveIntroPresenter(
             view: mockView,
             interactor: mockInteractor,
-            router: tempRouter!
+            router: XCTUnwrap(tempRouter)
         )
 
         // Deallocate the router to simulate weak reference becoming nil
@@ -305,7 +299,7 @@ final class PassiveIntroPresenterTests: XCTestCase {
         let mockResponse = MockResponseBuilder.validationCreateResponse()
 
         // When
-        sut.validationCreated(response: mockResponse)
+        await sut.validationCreated(response: mockResponse)
 
         // Then
         XCTAssertTrue(mockView.hideLoadingCalled, "Should hide loading")
@@ -316,13 +310,13 @@ final class PassiveIntroPresenterTests: XCTestCase {
         )
     }
 
-    func testValidationCreated_withNavigationError_showsError() {
+    func testValidationCreated_withNavigationError_showsError() async {
         // Given
         mockRouter.shouldThrowError = true
         let mockResponse = MockResponseBuilder.validationCreateResponse()
 
         // When
-        sut.validationCreated(response: mockResponse)
+        await sut.validationCreated(response: mockResponse)
 
         // Then
         XCTAssertTrue(mockView.hideLoadingCalled, "Should hide loading before showing error")
@@ -332,12 +326,12 @@ final class PassiveIntroPresenterTests: XCTestCase {
 
     // MARK: - Validation Failed Tests
 
-    func testValidationFailed_hidesLoadingAndShowsError() {
+    func testValidationFailed_hidesLoadingAndShowsError() async {
         // Given
-        let expectedError = ValidationError.apiError("Network connection failed")
+        let expectedError = TruoraException.network(message: "Network connection failed")
 
         // When
-        sut.validationFailed(expectedError)
+        await sut.validationFailed(expectedError)
 
         // Then
         XCTAssertTrue(mockView.hideLoadingCalled, "Should hide loading on validation failure")
@@ -347,25 +341,25 @@ final class PassiveIntroPresenterTests: XCTestCase {
         )
         XCTAssertEqual(
             mockRouter.lastErrorMessage,
-            expectedError.localizedDescription,
-            "Should show the error's localized description"
+            expectedError.errorDescription,
+            "Should show the error description"
         )
     }
 
-    func testValidationFailed_withDifferentErrorTypes_displaysAppropriateMessages() {
+    func testValidationFailed_withDifferentErrorTypes_displaysAppropriateMessages() async throws {
         // Test different error types
-        let errorTypes: [ValidationError] = [
-            .invalidConfiguration("Invalid config"),
-            .apiError("API failed"),
-            .internalError("Internal error")
+        let errorTypes: [TruoraException] = [
+            .sdk(SDKError(type: .invalidConfiguration, details: "Invalid config")),
+            .network(message: "API failed"),
+            .sdk(SDKError(type: .internalError, details: "Internal error"))
         ]
 
         for error in errorTypes {
             // Given
-            setUp() // Reset for each iteration
+            try await MainActor.run { setUp() } // Reset for each iteration
 
             // When
-            sut.validationFailed(error)
+            await sut.validationFailed(error)
 
             // Then
             XCTAssertTrue(
@@ -379,7 +373,7 @@ final class PassiveIntroPresenterTests: XCTestCase {
 
 // MARK: - Mock View
 
-private final class MockPassiveIntroView: PassiveIntroPresenterToView {
+@MainActor private final class MockPassiveIntroView: PassiveIntroPresenterToView {
     private(set) var showLoadingCalled = false
     private(set) var hideLoadingCalled = false
     private(set) var showErrorCalled = false
@@ -401,7 +395,7 @@ private final class MockPassiveIntroView: PassiveIntroPresenterToView {
 
 // MARK: - Mock Interactor
 
-private final class MockPassiveIntroInteractor: PassiveIntroPresenterToInteractor {
+@MainActor private final class MockPassiveIntroInteractor: PassiveIntroPresenterToInteractor {
     private(set) var createValidationCalled = false
     private(set) var enrollmentCompletedCalled = false
     private(set) var lastAccountId: String?
@@ -425,14 +419,14 @@ private final class MockPassiveIntroInteractor: PassiveIntroPresenterToInteracto
         }
         await onEnrollmentCompleted?()
         if shouldThrowEnrollmentError {
-            throw ValidationError.apiError("Mock enrollment error")
+            throw TruoraException.network(message: "Mock enrollment error")
         }
     }
 }
 
 // MARK: - Mock Router
 
-private final class MockPassiveIntroRouter: ValidationRouter {
+@MainActor private final class MockPassiveIntroRouter: ValidationRouter {
     private(set) var handleCancellationCalled = false
     private(set) var navigateToPassiveCaptureCalled = false
     private(set) var lastValidationId: String?
@@ -445,9 +439,9 @@ private final class MockPassiveIntroRouter: ValidationRouter {
         handleCancellationCalled = true
     }
 
-    override func handleError(_ error: ValidationError) {
+    override func handleError(_ error: TruoraException) {
         handleErrorCalled = true
-        lastErrorMessage = error.localizedDescription
+        lastErrorMessage = error.errorDescription
     }
 
     override func navigateToPassiveCapture(validationId: String, uploadUrl: String?) throws {
@@ -456,7 +450,7 @@ private final class MockPassiveIntroRouter: ValidationRouter {
         lastUploadUrl = uploadUrl
 
         if shouldThrowError {
-            throw ValidationError.internalError("Navigation error")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation error"))
         }
     }
 }

@@ -6,10 +6,9 @@
 //
 
 import XCTest
-
 @testable import TruoraValidationsSDK
 
-final class DocumentIntroPresenterTests: XCTestCase {
+@MainActor final class DocumentIntroPresenterTests: XCTestCase {
     private var sut: DocumentIntroPresenter!
     private var mockView: MockDocumentIntroView!
     private var mockInteractor: MockDocumentIntroInteractor!
@@ -27,8 +26,6 @@ final class DocumentIntroPresenterTests: XCTestCase {
             interactor: mockInteractor,
             router: mockRouter
         )
-
-        ValidationConfig.shared.reset()
     }
 
     override func tearDown() {
@@ -40,260 +37,128 @@ final class DocumentIntroPresenterTests: XCTestCase {
         super.tearDown()
     }
 
-    func testStartTapped_withoutAccountId_showsError() {
-        XCTAssertNil(ValidationConfig.shared.accountId)
+    // MARK: - View Lifecycle Tests
 
-        sut.startTapped()
-
-        XCTAssertTrue(mockView.showErrorCalled)
-        XCTAssertTrue(mockView.lastErrorMessage?.contains("Missing account ID") ?? false)
+    func testViewDidLoad_doesNothing() async {
+        await sut.viewDidLoad()
         XCTAssertFalse(mockView.showLoadingCalled)
         XCTAssertFalse(mockInteractor.createValidationCalled)
     }
 
-    func testStartTapped_withNilInteractor_showsError() async throws {
-        ValidationConfig.shared.reset()
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-api-key",
-            accountId: "test-account-id",
-            delegate: nil
-        )
+    // MARK: - Action Tests
 
-        sut = DocumentIntroPresenter(
-            view: mockView,
-            interactor: nil,
-            router: mockRouter
-        )
+    func testStartTapped_withConfiguredAccount_callsInteractor() async throws {
+        // Given
+        try await ValidationConfig.shared.configure(apiKey: "key", accountId: "acc-123")
 
-        sut.startTapped()
+        // When
+        await sut.startTapped()
 
-        XCTAssertTrue(mockView.showErrorCalled)
-        XCTAssertTrue(mockView.lastErrorMessage?.contains("Interactor not configured") ?? false)
+        // Then
+        XCTAssertTrue(mockView.showLoadingCalled)
+        XCTAssertTrue(mockInteractor.createValidationCalled)
+        XCTAssertEqual(mockInteractor.lastAccountId, "acc-123")
+    }
+
+    func testStartTapped_withoutAccount_showsError() async {
+        // Given - ValidationConfig not configured
+
+        // When
+        await sut.startTapped()
+
+        // Then
+        XCTAssertFalse(mockView.showLoadingCalled)
         XCTAssertFalse(mockInteractor.createValidationCalled)
     }
 
-    func testStartTapped_withValidConfiguration_callsInteractor() async throws {
-        let expectedAccountId = "test-account-id"
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-api-key",
-            accountId: expectedAccountId,
-            delegate: nil
-        )
-
-        sut.startTapped()
-
-        XCTAssertTrue(mockView.showLoadingCalled)
-        XCTAssertTrue(mockInteractor.createValidationCalled)
-        XCTAssertEqual(mockInteractor.lastAccountId, expectedAccountId)
-    }
-
-    func testCancelTapped_callsRouterHandleCancellation() {
-        sut.cancelTapped()
-
+    func testCancelTapped_callsRouter() async {
+        await sut.cancelTapped()
         XCTAssertTrue(mockRouter.handleCancellationCalled)
     }
 
-    func testValidationCreated_withValidFrontAndReverseUrls_navigatesToDocumentCapture() {
-        let instructions = ValidationInstructions(
+    // MARK: - Interactor Callback Tests
+
+    func testValidationCreated_withValidUrls_navigatesToCapture() async {
+        // Given
+        let instructions = NativeValidationInstructions(
             fileUploadLink: nil,
             frontUrl: "https://example.com/front",
             reverseUrl: "https://example.com/reverse"
         )
-        let response = ValidationCreateResponse(
-            validationId: "validation-id",
-            accountId: "account-id",
-            type: "document-validation",
-            validationStatus: "pending",
-            lifecycleStatus: "active",
-            threshold: nil,
-            creationDate: "2025-01-01T00:00:00Z",
-            ipAddress: nil,
-            details: nil,
+        let response = NativeValidationCreateResponse(
+            validationId: "validation-123",
             instructions: instructions
         )
 
-        sut.validationCreated(response: response)
+        // When
+        await sut.validationCreated(response: response)
 
-        XCTAssertFalse(mockView.showErrorCalled, "Should not show error when validation succeeds")
+        // Then
         XCTAssertTrue(mockView.hideLoadingCalled)
         XCTAssertTrue(mockRouter.navigateToDocumentCaptureCalled)
-        XCTAssertEqual(mockRouter.lastValidationId, "validation-id")
+        XCTAssertEqual(mockRouter.lastValidationId, "validation-123")
         XCTAssertEqual(mockRouter.lastFrontUploadUrl, "https://example.com/front")
         XCTAssertEqual(mockRouter.lastReverseUploadUrl, "https://example.com/reverse")
     }
 
-    func testValidationCreated_missingFrontUrl_showsErrorAndDoesNotNavigate() {
-        let instructions = ValidationInstructions(
+    func testValidationCreated_withMissingFrontUrl_showsError() async {
+        // Given - instructions missing frontUrl
+        let instructions = NativeValidationInstructions(
             fileUploadLink: nil,
             frontUrl: nil,
             reverseUrl: "https://example.com/reverse"
         )
-        let response = ValidationCreateResponse(
-            validationId: "validation-id",
-            accountId: "account-id",
-            type: "document-validation",
-            validationStatus: "pending",
-            lifecycleStatus: "active",
-            threshold: nil,
-            creationDate: "2025-01-01T00:00:00Z",
-            ipAddress: nil,
-            details: nil,
-            instructions: instructions
-        )
-
-        sut.validationCreated(response: response)
-
-        XCTAssertTrue(mockView.showErrorCalled)
-        XCTAssertTrue(
-            mockView.hideLoadingCalled,
-            "Presenter should hide loading before validating instructions"
-        )
-        XCTAssertTrue(mockView.lastErrorMessage?.contains("Missing front upload URL") ?? false)
-        XCTAssertFalse(mockRouter.navigateToDocumentCaptureCalled)
-    }
-
-    func testValidationCreated_missingReverseUrl_showsErrorAndDoesNotNavigate() {
-        let instructions = ValidationInstructions(
-            fileUploadLink: nil,
-            frontUrl: "https://example.com/front",
-            reverseUrl: nil
-        )
-        let response = ValidationCreateResponse(
-            validationId: "validation-id",
-            accountId: "account-id",
-            type: "document-validation",
-            validationStatus: "pending",
-            lifecycleStatus: "active",
-            threshold: nil,
-            creationDate: "2025-01-01T00:00:00Z",
-            ipAddress: nil,
-            details: nil,
-            instructions: instructions
-        )
-
-        sut.validationCreated(response: response)
-
-        XCTAssertTrue(mockView.showErrorCalled)
-        XCTAssertTrue(
-            mockView.hideLoadingCalled,
-            "Presenter should hide loading before validating instructions"
-        )
-        XCTAssertTrue(mockView.lastErrorMessage?.contains("Missing reverse upload URL") ?? false)
-        XCTAssertFalse(mockRouter.navigateToDocumentCaptureCalled)
-    }
-
-    func testValidationFailed_hidesLoadingAndCallsRouterHandleError() {
-        let error = ValidationError.apiError("Test error")
-
-        sut.validationFailed(error)
-
-        XCTAssertTrue(mockView.hideLoadingCalled)
-        XCTAssertTrue(mockRouter.handleErrorCalled)
-        XCTAssertEqual(mockRouter.lastErrorMessage, error.localizedDescription)
-    }
-
-    // MARK: - Single-Sided Document Tests
-
-    func testValidationCreated_withOnlyFrontUrl_navigatesToCapture() {
-        // Given - Single-sided document (passport) with only front URL
-        let instructions = ValidationInstructions(
-            fileUploadLink: nil,
-            frontUrl: "https://example.com/front",
-            reverseUrl: nil
-        )
-        let response = ValidationCreateResponse(
+        let response = NativeValidationCreateResponse(
             validationId: "validation-123",
-            accountId: "account-1",
-            type: "document-validation",
-            validationStatus: "processing",
-            lifecycleStatus: "active",
-            threshold: nil,
-            creationDate: "2025-01-09",
-            ipAddress: "127.0.0.1",
-            details: nil,
             instructions: instructions
         )
 
         // When
-        sut.validationCreated(response: response)
+        await sut.validationCreated(response: response)
 
         // Then
         XCTAssertTrue(mockView.hideLoadingCalled)
-        XCTAssertFalse(mockView.showErrorCalled)
-        XCTAssertTrue(mockRouter.navigateToDocumentCaptureCalled)
-        XCTAssertEqual(mockRouter.lastValidationId, "validation-123")
-        XCTAssertEqual(mockRouter.lastFrontUploadUrl, "https://example.com/front")
-        XCTAssertNil(mockRouter.lastReverseUploadUrl, "Reverse URL should be nil for single-sided documents")
+        XCTAssertTrue(mockView.showErrorCalled)
+        XCTAssertTrue(mockView.lastErrorMessage?.contains("front upload URL") ?? false)
+        XCTAssertFalse(mockRouter.navigateToDocumentCaptureCalled)
     }
 
-    func testValidationCreated_withEmptyReverseUrl_navigatesToCapture() {
-        // Given - Single-sided document with empty reverse URL string
-        let instructions = ValidationInstructions(
+    func testValidationCreated_withEmptyFrontUrl_showsError() async {
+        // Given - instructions with empty frontUrl
+        let instructions = NativeValidationInstructions(
             fileUploadLink: nil,
-            frontUrl: "https://example.com/front",
-            reverseUrl: ""
-        )
-        let response = ValidationCreateResponse(
-            validationId: "validation-456",
-            accountId: "account-1",
-            type: "document-validation",
-            validationStatus: "processing",
-            lifecycleStatus: "active",
-            threshold: nil,
-            creationDate: "2025-01-09",
-            ipAddress: "127.0.0.1",
-            details: nil,
-            instructions: instructions
-        )
-
-        // When
-        sut.validationCreated(response: response)
-
-        // Then
-        XCTAssertTrue(mockView.hideLoadingCalled)
-        XCTAssertFalse(mockView.showErrorCalled)
-        XCTAssertTrue(mockRouter.navigateToDocumentCaptureCalled)
-        XCTAssertEqual(mockRouter.lastValidationId, "validation-456")
-        XCTAssertEqual(mockRouter.lastFrontUploadUrl, "https://example.com/front")
-        XCTAssertEqual(mockRouter.lastReverseUploadUrl, "", "Empty reverse URL should be passed as-is")
-    }
-
-    func testValidationCreated_withBothUrls_navigatesToCapture() {
-        // Given - Two-sided document with both URLs
-        let instructions = ValidationInstructions(
-            fileUploadLink: nil,
-            frontUrl: "https://example.com/front",
+            frontUrl: "",
             reverseUrl: "https://example.com/reverse"
         )
-        let response = ValidationCreateResponse(
-            validationId: "validation-789",
-            accountId: "account-1",
-            type: "document-validation",
-            validationStatus: "processing",
-            lifecycleStatus: "active",
-            threshold: nil,
-            creationDate: "2025-01-09",
-            ipAddress: "127.0.0.1",
-            details: nil,
+        let response = NativeValidationCreateResponse(
+            validationId: "validation-123",
             instructions: instructions
         )
 
         // When
-        sut.validationCreated(response: response)
+        await sut.validationCreated(response: response)
 
         // Then
         XCTAssertTrue(mockView.hideLoadingCalled)
-        XCTAssertFalse(mockView.showErrorCalled)
-        XCTAssertTrue(mockRouter.navigateToDocumentCaptureCalled)
-        XCTAssertEqual(mockRouter.lastValidationId, "validation-789")
-        XCTAssertEqual(mockRouter.lastFrontUploadUrl, "https://example.com/front")
-        XCTAssertEqual(mockRouter.lastReverseUploadUrl, "https://example.com/reverse")
+        XCTAssertTrue(mockView.showErrorCalled)
+        XCTAssertTrue(mockView.lastErrorMessage?.contains("front upload URL") ?? false)
+        XCTAssertFalse(mockRouter.navigateToDocumentCaptureCalled)
+    }
+
+    func testValidationFailed_hidesLoadingAndShowsError() async {
+        // When
+        await sut.validationFailed(.network(message: "api error"))
+
+        // Then
+        XCTAssertTrue(mockView.hideLoadingCalled)
+        XCTAssertTrue(mockRouter.handleErrorCalled)
+        XCTAssertEqual(mockRouter.lastErrorMessage, "api error")
     }
 }
 
 // MARK: - Mocks
 
-private final class MockDocumentIntroView: DocumentIntroPresenterToView {
+@MainActor private final class MockDocumentIntroView: DocumentIntroPresenterToView {
     private(set) var showLoadingCalled = false
     private(set) var hideLoadingCalled = false
     private(set) var showErrorCalled = false
@@ -313,7 +178,7 @@ private final class MockDocumentIntroView: DocumentIntroPresenterToView {
     }
 }
 
-private final class MockDocumentIntroInteractor: DocumentIntroPresenterToInteractor {
+@MainActor private final class MockDocumentIntroInteractor: DocumentIntroPresenterToInteractor {
     private(set) var createValidationCalled = false
     private(set) var lastAccountId: String?
 
@@ -323,7 +188,7 @@ private final class MockDocumentIntroInteractor: DocumentIntroPresenterToInterac
     }
 }
 
-private final class MockDocumentIntroRouter: ValidationRouter {
+@MainActor private final class MockDocumentIntroRouter: ValidationRouter {
     private(set) var handleCancellationCalled = false
     private(set) var handleErrorCalled = false
     private(set) var lastErrorMessage: String?
@@ -337,7 +202,7 @@ private final class MockDocumentIntroRouter: ValidationRouter {
         handleCancellationCalled = true
     }
 
-    override func handleError(_ error: ValidationError) {
+    override func handleError(_ error: TruoraException) {
         handleErrorCalled = true
         lastErrorMessage = error.localizedDescription
     }

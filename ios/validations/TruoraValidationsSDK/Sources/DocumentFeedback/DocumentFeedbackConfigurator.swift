@@ -6,11 +6,10 @@
 //
 
 import SwiftUI
-import TruoraShared
 import UIKit
 
 enum DocumentFeedbackConfigurator {
-    static func buildModule(
+    @MainActor static func buildModule(
         router: ValidationRouter,
         feedback: FeedbackScenario,
         capturedImageData: Data?,
@@ -28,10 +27,10 @@ enum DocumentFeedbackConfigurator {
         )
         viewModel.presenter = presenter
 
-        let composeConfig = ValidationConfig.shared.composeConfig
+        let config = ValidationConfig.shared.uiConfig
         let swiftUIView = DocumentFeedbackView(
             viewModel: viewModel,
-            composeConfig: composeConfig
+            config: config
         )
         let hostingController = UIHostingController(rootView: swiftUIView)
         hostingController.modalPresentationStyle = .fullScreen

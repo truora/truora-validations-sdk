@@ -7,7 +7,6 @@
 
 import AVFoundation
 import Foundation
-import TruoraShared
 
 protocol CameraPermissionChecking {
     func authorizationStatus() -> AVAuthorizationStatus
@@ -29,8 +28,8 @@ final class DocumentSelectionPresenter {
     var interactor: DocumentSelectionPresenterToInteractor?
     weak var router: ValidationRouter?
 
-    private var selectedCountry: TruoraCountry?
-    private var selectedDocument: TruoraDocumentType?
+    private var selectedCountry: NativeCountry?
+    private var selectedDocument: NativeDocumentType?
 
     private var isCameraAuthorized: Bool = false
     private let cameraPermissionChecker: CameraPermissionChecking
@@ -47,7 +46,7 @@ final class DocumentSelectionPresenter {
         self.cameraPermissionChecker = cameraPermissionChecker
     }
 
-    private func preflightCameraPermission() {
+    private func preflightCameraPermission() async {
         let status = cameraPermissionChecker.authorizationStatus()
         switch status {
         case .authorized:
@@ -57,51 +56,66 @@ final class DocumentSelectionPresenter {
                 guard let self else { return }
                 self.isCameraAuthorized = granted
                 if !granted {
-                    self.view?.displayCameraPermissionAlert()
+                    Task {
+                        await self.view?.displayCameraPermissionAlert()
+                    }
                 }
             }
         default:
             isCameraAuthorized = false
-            view?.displayCameraPermissionAlert()
+            await view?.displayCameraPermissionAlert()
         }
     }
 
-    private func clearErrorsIfNeeded() {
-        view?.setErrors(isCountryError: false, isDocumentError: false)
+    private func clearErrorsIfNeeded() async {
+        await view?.setErrors(isCountryError: false, isDocumentError: false)
     }
 }
 
 extension DocumentSelectionPresenter: DocumentSelectionViewToPresenter {
-    func viewDidLoad() {
+    func viewDidLoad() async {
         interactor?.fetchSupportedCountries()
-        preflightCameraPermission()
+        await preflightCameraPermission()
+        await checkForPreConfiguredCountry()
     }
 
-    func countrySelected(_ country: TruoraCountry) {
+    private func checkForPreConfiguredCountry() async {
+        let documentConfig = ValidationConfig.shared.documentConfig
+        let preConfiguredCountry = documentConfig.country
+
+        if !preConfiguredCountry.isEmpty,
+           let country = NativeCountry(rawValue: preConfiguredCountry.lowercased()) {
+            selectedCountry = country
+            await view?.setCountryLocked(true)
+            await view?.updateSelection(selectedCountry: country, selectedDocument: nil)
+        }
+    }
+
+    func countrySelected(_ country: NativeCountry) async {
         selectedCountry = country
-        // Reset document selection on country change (KMP derives valid docs per country).
+        // Reset document selection on country change.
         selectedDocument = nil
-        view?.updateSelection(selectedCountry: selectedCountry, selectedDocument: selectedDocument)
-        clearErrorsIfNeeded()
+        await view?.updateSelection(selectedCountry: selectedCountry, selectedDocument: selectedDocument)
+        await clearErrorsIfNeeded()
     }
 
-    func documentSelected(_ document: TruoraDocumentType) {
+    func documentSelected(_ document: NativeDocumentType) async {
         selectedDocument = document
-        view?.updateSelection(selectedCountry: selectedCountry, selectedDocument: selectedDocument)
-        clearErrorsIfNeeded()
+        await view?.updateSelection(selectedCountry: selectedCountry, selectedDocument: selectedDocument)
+        await clearErrorsIfNeeded()
     }
 
-    func continueTapped() {
+    func continueTapped() async {
         let isCountryValid = selectedCountry != nil
         let isDocumentValid = selectedDocument != nil
-        view?.setErrors(isCountryError: !isCountryValid, isDocumentError: !isDocumentValid)
+        await view?.setErrors(isCountryError: !isCountryValid, isDocumentError: !isDocumentValid)
 
         guard isCountryValid, isDocumentValid else {
             return
         }
 
         guard isCameraAuthorized else {
-            view?.displayCameraPermissionAlert()
+            await view?.displayCameraPermissionAlert()
             return
         }
 
@@ -110,25 +124,25 @@ extension DocumentSelectionPresenter: DocumentSelectionViewToPresenter {
         }
 
         let documentConfig = Document()
-            .setCountry(selectedCountry.id)
-            .setDocumentType(selectedDocument.value)
+            .setCountry(selectedCountry.rawValue)
+            .setDocumentType(selectedDocument.rawValue)
         ValidationConfig.shared.setValidation(.document(documentConfig))
 
         do {
-            try router.navigateToDocumentIntro()
+            try await router.navigateToDocumentIntro()
         } catch {
             // Routing error is not recoverable from here; surface actionable alert anyway.
-            view?.displayCameraPermissionAlert()
+            await view?.displayCameraPermissionAlert()
         }
     }
 
-    func cancelTapped() {
-        router?.handleCancellation()
+    func cancelTapped() async {
+        await router?.handleCancellation()
     }
 }
 
 extension DocumentSelectionPresenter: DocumentSelectionInteractorToPresenter {
-    func didLoadCountries(_ countries: [TruoraCountry]) {
-        view?.setCountries(countries)
+    func didLoadCountries(_ countries: [NativeCountry]) async {
+        await view?.setCountries(countries)
     }
 }

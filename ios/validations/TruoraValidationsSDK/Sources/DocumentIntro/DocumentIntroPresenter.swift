@@ -26,62 +26,62 @@ class DocumentIntroPresenter {
 }
 
 extension DocumentIntroPresenter: DocumentIntroViewToPresenter {
-    func viewDidLoad() {
+    func viewDidLoad() async {
         // Initial setup if needed
     }
 
-    func startTapped() {
+    func startTapped() async {
         guard let accountId = ValidationConfig.shared.accountId else {
-            view?.showError("Missing account ID")
+            await view?.showError("Missing account ID")
             return
         }
 
         guard let interactor else {
-            view?.showError("Interactor not configured")
+            await view?.showError("Interactor not configured")
             return
         }
 
-        view?.showLoading()
+        await view?.showLoading()
         interactor.createValidation(accountId: accountId)
     }
 
-    func cancelTapped() {
-        router?.handleCancellation()
+    func cancelTapped() async {
+        await router?.handleCancellation()
     }
 }
 
 extension DocumentIntroPresenter: DocumentIntroInteractorToPresenter {
-    func validationCreated(response: ValidationCreateResponse) {
+    func validationCreated(response: NativeValidationCreateResponse) async {
         guard let router else {
-            view?.hideLoading()
-            view?.showError("Router not configured")
+            await view?.hideLoading()
+            await view?.showError("Router not configured")
             return
         }
 
-        view?.hideLoading()
+        await view?.hideLoading()
 
         let validationId = response.validationId
         let frontUploadUrl = response.instructions?.frontUrl
         let reverseUploadUrl = response.instructions?.reverseUrl
 
         guard let frontUploadUrl, !frontUploadUrl.isEmpty else {
-            view?.showError("Missing front upload URL")
+            await view?.showError("Missing front upload URL")
             return
         }
 
         do {
-            try router.navigateToDocumentCapture(
+            try await router.navigateToDocumentCapture(
                 validationId: validationId,
                 frontUploadUrl: frontUploadUrl,
                 reverseUploadUrl: reverseUploadUrl
             )
         } catch {
-            view?.showError(error.localizedDescription)
+            await view?.showError(error.localizedDescription)
         }
     }
 
-    func validationFailed(_ error: ValidationError) {
-        view?.hideLoading()
-        router?.handleError(error)
+    func validationFailed(_ error: TruoraException) async {
+        await view?.hideLoading()
+        await router?.handleError(error)
     }
 }

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import TruoraShared
 import UIKit
 
 // MARK: - Main SDK Entry Point
@@ -14,10 +13,14 @@ import UIKit
 public class TruoraValidationsSDK {
     public static let shared = TruoraValidationsSDK()
 
-    private init() {}
+    #if DEBUG
+    /// Helper flag to disable network requests for UI testing
+    /// When true, API calls are mocked with successful responses
+    /// Only available in DEBUG builds to prevent accidental production use
+    public static var isOfflineMode = false
+    #endif
 
-    // Remove this method once selection screen is implemented
-    // https://truora.atlassian.net/browse/AL-232
+    private init() {}
 
     /// Starts the document validation flow.
     ///
@@ -50,64 +53,9 @@ public class TruoraValidationsSDK {
         try ValidationRouter.presentFlow(navController: navController, from: viewController)
     }
 
-    /// Starts the face validation flow
-    /// - Parameters:
-    ///   - viewController: The view controller to present the validation flow from
-    ///   - accountId: The account ID for the validation
-    ///   - apiKey: Your Truora API key
-    ///   - baseUrl: Optional custom base URL for the API
-    ///   - completion: Closure to handle the validation callbacks
-    /// - Important: Use `[weak self]` in your completion closure to avoid memory leaks.
-    ///   Example: `completion: { [weak self] result in self?.handleResult(result) }`
-    @MainActor
-    public func startFaceValidationWithEnrollment(
-        from viewController: UIViewController,
-        accountId: String,
-        apiKey: String,
-        baseUrl: String? = nil,
-        completion: ((TruoraValidationResult<ValidationResult>) -> Void)? = nil
-    ) async throws {
-        try await ValidationConfig.shared
-            .configure(
-                apiKey: apiKey,
-                accountId: accountId,
-                delegate: completion,
-                baseUrl: baseUrl
-            )
-        let enrollmentData = try await createEnrollment(accountId: accountId)
-
-        ValidationConfig.shared.updateEnrollmentData(enrollmentData)
-
-        let navController = try await MainActor.run {
-            try ValidationRouter.createRootNavigationController()
-        }
-        do {
-            try await MainActor.run {
-                navController.modalPresentationStyle = .fullScreen
-                try ValidationRouter.presentFlow(navController: navController, from: viewController)
-            }
-        } catch {
-            let validationError = (error as? ValidationError) ?? .internalError(error.localizedDescription)
-            completion?(.failure(validationError))
-            throw validationError
-        }
-    }
-
     /// Cleans up SDK resources
     public func reset() {
         ValidationConfig.shared.reset()
-    }
-
-    @MainActor
-    public func createEnrollment(accountId: String, apiKey: String) async throws -> EnrollmentData {
-        try await ValidationConfig.shared.configure(apiKey: apiKey, accountId: accountId)
-        return try await createEnrollment(accountId: accountId)
-    }
-
-    @MainActor
-    private func createEnrollment(accountId: String) async throws -> EnrollmentData {
-        let interactor = EnrollmentInteractor()
-        return try await interactor.createEnrollment(accountId: accountId)
     }
 
     // MARK: - TruoraValidation
@@ -159,31 +107,45 @@ public class TruoraValidationsSDK {
                 navController.modalPresentationStyle = .fullScreen
                 viewController.present(navController, animated: true)
             } catch {
-                completion?(.failure(.internalError(error.localizedDescription)))
+                completion?(
+                    .failure(.sdk(SDKError(type: .internalError, details: error.localizedDescription)))
+                )
             }
         }
 
-        /// Resolves the API key from the provider and validates it through the ApiKeyManager.
+        /// Resolves the API key from the provider.
+        ///
+        /// This method:
+        /// 1. Gets the API key from the secure location provider
+        /// 2. Validates it's not empty
+        /// 3. Decodes the JWT and checks expiration
+        /// 4. Returns SDK keys directly
+        /// 5. Exchanges generator keys for SDK keys via the Account API
+        ///
         /// - Returns: The resolved SDK API key ready to use
         /// - Throws: ValidationError if the API key is invalid or resolution fails
         private func resolveApiKey() async throws -> String {
             let clientApiKey = try await apiKeyGenerator.getApiKeyFromSecureLocation()
 
             guard !clientApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw ValidationError.invalidConfiguration("API key cannot be null or empty")
+                throw TruoraException.sdk(
+                    SDKError(type: .invalidConfiguration, details: "API key cannot be null or empty")
+                )
             }
 
-            let apiKeyManager = TruoraShared.ApiKeyManagerSwiftHelperKt.createApiKeyManager()
-            defer {
-                apiKeyManager.close()
+            #if DEBUG
+            // Skip network validation in offline mode (DEBUG only)
+            if TruoraValidationsSDK.isOfflineMode {
+                return clientApiKey
             }
+            #endif
 
+            // Use ApiKeyManager to resolve the key (handles sdk vs generator types)
             do {
-                return try await apiKeyManager.resolveApiKey(providedApiKey: clientApiKey)
-            } catch let error as ApiKeyException {
-                throw ValidationError.invalidConfiguration("Invalid API key: \(error.message ?? "")")
-            } catch {
-                throw ValidationError.invalidConfiguration("Failed to resolve API key: \(error.localizedDescription)")
+                let apiKeyManager = ApiKeyManager()
+                return try await apiKeyManager.resolveApiKey(clientApiKey)
+            } catch let error as ApiKeyError {
+                throw error.toTruoraException()
             }
         }
     }

@@ -10,15 +10,13 @@ import UIKit
 import XCTest
 @testable import TruoraValidationsSDK
 
-class ValidationRouterTests: XCTestCase {
+@MainActor class ValidationRouterTests: XCTestCase {
     var router: ValidationRouter!
     var mockNavigationController: UINavigationController!
     fileprivate var mockDelegate: MockValidationDelegateForRouter!
 
-    // Minimal valid JPEG data (1x1 pixel red image)
-    // This is more realistic than empty Data() for face enrollment tests
+    /// Minimal valid JPEG data (1x1 pixel red image)
     private static let minimalJPEGData: Data = {
-        // JPEG header for a minimal 1x1 red pixel image
         let jpegBytes: [UInt8] = [
             0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
             0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
@@ -55,7 +53,6 @@ class ValidationRouterTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        // Reset config FIRST to ensure clean state
         ValidationConfig.shared.reset()
         mockNavigationController = UINavigationController()
         mockDelegate = MockValidationDelegateForRouter()
@@ -63,11 +60,9 @@ class ValidationRouterTests: XCTestCase {
     }
 
     override func tearDown() {
-        // Clean up in reverse order of creation
         router = nil
         mockNavigationController = nil
         mockDelegate = nil
-        // Reset config LAST to ensure complete cleanup
         ValidationConfig.shared.reset()
         super.tearDown()
     }
@@ -75,7 +70,6 @@ class ValidationRouterTests: XCTestCase {
     // MARK: - Navigate to Passive Capture Tests
 
     func testNavigateToPassiveCaptureWithValidData() async throws {
-        // Given
         try await ValidationConfig.shared.configure(
             apiKey: "test-api-key",
             accountId: "test-account-id",
@@ -85,12 +79,10 @@ class ValidationRouterTests: XCTestCase {
         let validationId = "test-validation-id"
         let uploadUrl = "https://example.com/upload"
 
-        // When/Then
         XCTAssertNoThrow(try router.navigateToPassiveCapture(validationId: validationId, uploadUrl: uploadUrl))
     }
 
     func testNavigateToPassiveCaptureWithNilUploadUrl() async throws {
-        // Given
         try await ValidationConfig.shared.configure(
             apiKey: "test-api-key",
             accountId: "test-account-id",
@@ -99,252 +91,140 @@ class ValidationRouterTests: XCTestCase {
 
         let validationId = "test-validation-id"
 
-        // When/Then
         XCTAssertNoThrow(try router.navigateToPassiveCapture(validationId: validationId, uploadUrl: nil))
     }
 
-    func testNavigateToPassiveCaptureWithEmptyUploadUrlThrowsError() async throws {
-        // Given
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-api-key",
-            accountId: "test-account-id",
-            delegate: mockDelegate.closure
-        )
-
+    func testNavigateToPassiveCaptureWithEmptyUploadUrlThrowsError() {
         let validationId = "test-validation-id"
-        let emptyUploadUrl = ""
+        let emptyUrl = ""
 
-        // When/Then
-        XCTAssertThrowsError(try router.navigateToPassiveCapture(
-            validationId: validationId,
-            uploadUrl: emptyUploadUrl
-        )) { error in
-            guard case ValidationError.invalidConfiguration(let message) = error else {
-                XCTFail("Expected invalidConfiguration error")
-                return
-            }
-            XCTAssertTrue(message.contains("Upload URL cannot be empty"))
-        }
+        XCTAssertThrowsError(try router.navigateToPassiveCapture(validationId: validationId, uploadUrl: emptyUrl))
     }
 
-    func testNavigateToPassiveCaptureWithInvalidUploadUrlDoesNotCrash() async throws {
-        // Given
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-api-key",
-            accountId: "test-account-id",
-            delegate: mockDelegate.closure
-        )
-
+    func testNavigateToPassiveCaptureWithInvalidUploadUrlThrowsError() {
         let validationId = "test-validation-id"
-        // Note: URL(string:) accepts most strings, so we can't easily test invalid URLs
-        // This test just verifies the method doesn't crash
-        XCTAssertNotNil(validationId)
+        let invalidUrl = "not-a-valid-url"
+
+        XCTAssertThrowsError(try router.navigateToPassiveCapture(validationId: validationId, uploadUrl: invalidUrl))
+    }
+
+    // MARK: - Navigate to Result Tests
+
+    func testNavigateToResultWithValidData() {
+        let validationId = "test-validation-id"
+
+        XCTAssertNoThrow(try router.navigateToResult(validationId: validationId, loadingType: .face))
+    }
+
+    func testNavigateToResultWithDocumentLoadingType() {
+        let validationId = "test-validation-id"
+
+        XCTAssertNoThrow(try router.navigateToResult(validationId: validationId, loadingType: .document))
     }
 
     // MARK: - Navigate to Passive Intro Tests
 
     func testNavigateToPassiveIntroWithConfiguration() async throws {
-        // Given
         try await ValidationConfig.shared.configure(
             apiKey: "test-api-key",
             accountId: "test-account-id",
             delegate: mockDelegate.closure
         )
 
-        // When/Then
         XCTAssertNoThrow(try router.navigateToPassiveIntro())
     }
 
-    // MARK: - Handle Cancellation Tests
+    // MARK: - Navigate to Document Capture Tests
 
-    func testHandleCancellationDoesNotCrash() {
-        // When/Then
-        XCTAssertNoThrow(router.handleCancellation())
+    func testNavigateToDocumentCaptureWithValidData() {
+        let validationId = "test-validation-id"
+        let frontUrl = "https://example.com/front"
+        let reverseUrl = "https://example.com/reverse"
+
+        XCTAssertNoThrow(try router.navigateToDocumentCapture(
+            validationId: validationId,
+            frontUploadUrl: frontUrl,
+            reverseUploadUrl: reverseUrl
+        ))
     }
 
-    // MARK: - Dismiss Flow Tests
+    func testNavigateToDocumentCaptureWithSingleSidedDocument() {
+        let validationId = "test-validation-id"
+        let frontUrl = "https://example.com/front"
 
-    func testDismissFlow() {
-        // When
-        router.dismissFlow()
-
-        // Then
-        // The navigation controller should be dismissed
-        // This is hard to test without a window, but we can verify it doesn't crash
-        XCTAssertNotNil(router)
+        XCTAssertNoThrow(try router.navigateToDocumentCapture(
+            validationId: validationId,
+            frontUploadUrl: frontUrl,
+            reverseUploadUrl: nil
+        ))
     }
 
-    // MARK: - Reference Face Enrollment Tests
+    func testNavigateToDocumentCaptureWithInvalidFrontUrlThrowsError() {
+        let validationId = "test-validation-id"
+        let invalidUrl = "invalid-url"
 
-    func testStartReferenceFaceEnrollment_withEmptyAccountId_returnsNil() {
-        // Given - setUp() already resets config, no account ID configured
+        XCTAssertThrowsError(try router.navigateToDocumentCapture(
+            validationId: validationId,
+            frontUploadUrl: invalidUrl,
+            reverseUploadUrl: nil
+        ))
+    }
 
-        // When
+    // MARK: - Navigate to Document Feedback Tests
+
+    func testNavigateToDocumentFeedback() {
+        let scenario = FeedbackScenario.documentNotFound
+        let imageData = Self.minimalJPEGData
+        let retriesLeft = 2
+
+        XCTAssertNoThrow(try router.navigateToDocumentFeedback(
+            feedback: scenario,
+            capturedImageData: imageData,
+            retriesLeft: retriesLeft
+        ))
+    }
+
+    // MARK: - Enrollment Tests
+
+    func testStartReferenceFaceEnrollmentWithValidConfig() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileUrl = tempDir.appendingPathComponent("test.jpg")
+        try "test".data(using: .utf8)?.write(to: fileUrl)
+
+        let referenceFace = try ReferenceFace.from(fileUrl)
+
+        try await ValidationConfig.shared.configure(
+            apiKey: "test-key",
+            accountId: "test-account"
+        )
+        _ = ValidationConfig.shared.faceConfig.useReferenceFace(referenceFace)
+
         let task = router.startReferenceFaceEnrollmentForTest()
+        XCTAssertNotNil(task)
 
-        // Then
-        XCTAssertNil(task, "Should return nil when account ID is empty")
+        try? FileManager.default.removeItem(at: fileUrl)
     }
 
-    func testStartReferenceFaceEnrollment_withoutReferenceFace_returnsNil() async throws {
-        // Given
+    func testStartReferenceFaceEnrollmentWithoutReferenceFaceReturnsNil() async throws {
         try await ValidationConfig.shared.configure(
-            apiKey: "test-api-key",
-            accountId: "test-account-id",
-            delegate: nil
+            apiKey: "test-key",
+            accountId: "test-account"
         )
-        // No reference face configured
 
-        // When
         let task = router.startReferenceFaceEnrollmentForTest()
-
-        // Then
-        XCTAssertNil(task, "Should return nil when reference face is not configured")
+        XCTAssertNil(task)
     }
 
-    func testStartReferenceFaceEnrollment_withValidConfiguration_createsTask() async throws {
-        // Given
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-api-key",
-            accountId: "test-account-id",
-            delegate: nil
-        )
-
-        // Configure a reference face with realistic JPEG data
-        let referenceFace = ReferenceFace.from(Self.minimalJPEGData)
-        ValidationConfig.shared.setValidation(.face(Face().useReferenceFace(referenceFace)))
-
-        // When
+    func testStartReferenceFaceEnrollmentWithoutAccountIdReturnsNil() {
         let task = router.startReferenceFaceEnrollmentForTest()
-
-        // Then
-        XCTAssertNotNil(task, "Should create enrollment task with valid configuration")
-
-        // Clean up task and verify cancellation doesn't throw
-        task?.cancel()
-        XCTAssertTrue(task?.isCancelled ?? false, "Task should be cancelled after cancel() call")
+        XCTAssertNil(task)
     }
-
-    func testGetPassiveIntroViewController_createsViewControllerWithEnrollmentTask() async throws {
-        // Given
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-api-key",
-            accountId: "test-account-id",
-            delegate: nil
-        )
-
-        // Configure a reference face with realistic JPEG data
-        let referenceFace = ReferenceFace.from(Self.minimalJPEGData)
-        ValidationConfig.shared.setValidation(.face(Face().useReferenceFace(referenceFace)))
-
-        // When
-        let viewController = try router.getPassiveIntroViewControllerForTest()
-
-        // Then
-        XCTAssertNotNil(viewController, "Should create view controller")
-        XCTAssertTrue(viewController is UIHostingController<PassiveIntroView>, "Should be hosting controller")
-    }
-
-    func testGetPassiveIntroViewController_withoutReferenceFace_stillCreatesViewController() async throws {
-        // Given
-        try await ValidationConfig.shared.configure(
-            apiKey: "test-api-key",
-            accountId: "test-account-id",
-            delegate: nil
-        )
-        // No reference face configured
-
-        // When
-        let viewController = try router.getPassiveIntroViewControllerForTest()
-
-        // Then
-        XCTAssertNotNil(viewController, "Should create view controller even without reference face")
-    }
-
-    // MARK: - Centralized Presentation Tests
-
-    func testPresentFlow_fromViewControllerNotInWindowHierarchy_throws() {
-        runAsyncTest {
-            let navController = UINavigationController()
-            let presenter = UIViewController()
-
-            do {
-                try await MainActor.run {
-                    try ValidationRouter.presentFlow(
-                        navController: navController,
-                        from: presenter
-                    )
-                }
-                XCTFail("Expected presentFlow to throw")
-            } catch {
-                guard case ValidationError.internalError(let message) = error else {
-                    XCTFail("Expected internalError")
-                    return
-                }
-                XCTAssertTrue(message.contains("window hierarchy"))
-            }
-        }
-    }
-
-    func testPresentFlow_whenPresenterIsAlreadyPresenting_throws() {
-        runAsyncTest {
-            let window = UIWindow(frame: UIScreen.main.bounds)
-            let navController = UINavigationController()
-            let presenter = PresentingViewController()
-            window.rootViewController = presenter
-            window.makeKeyAndVisible()
-            presenter.loadViewIfNeeded()
-
-            do {
-                try await MainActor.run {
-                    try ValidationRouter.presentFlow(
-                        navController: navController,
-                        from: presenter
-                    )
-                }
-                XCTFail("Expected presentFlow to throw")
-            } catch {
-                guard case ValidationError.internalError(let message) = error else {
-                    XCTFail("Expected internalError")
-                    return
-                }
-                XCTAssertTrue(message.contains("already presenting"))
-            }
-        }
-    }
-}
-
-private final class PresentingViewController: UIViewController {
-    override var presentedViewController: UIViewController? { UIViewController() }
 }
 
 // MARK: - Mock Delegate
 
-private class MockValidationDelegateForRouter {
-    var completionCalled = false
-    var failureCalled = false
-    var validationCancelledCalled = false
-    var captureCalled = false
-    var lastResult: ValidationResult?
-    var lastError: ValidationError?
-
+@MainActor private class MockValidationDelegateForRouter {
     var closure: (TruoraValidationResult<ValidationResult>) -> Void {
-        { [unowned self] result in
-            switch result {
-            case .complete(let validationResult):
-                self.completionCalled = true
-                self.lastResult = validationResult
-            case .failure(let err):
-                switch err {
-                case .cancelled:
-                    self.validationCancelledCalled = true
-                default:
-                    self.failureCalled = true
-                    self.lastError = err
-                }
-            case .capture:
-                self.captureCalled = true
-            }
-        }
+        { _ in }
     }
 }

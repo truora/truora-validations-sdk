@@ -7,6 +7,7 @@
 
 import Foundation
 
+/// Legacy error enum - prefer using TruoraException directly
 public enum ValidationError: Error, Equatable {
     case invalidConfiguration(String)
     case apiError(String)
@@ -15,6 +16,8 @@ public enum ValidationError: Error, Equatable {
     case cameraError(String)
     case internalError(String)
     case uploadFailed(String)
+    /// API key is invalid, expired, or could not be resolved
+    case invalidApiKey(String)
 }
 
 extension ValidationError: LocalizedError {
@@ -34,6 +37,8 @@ extension ValidationError: LocalizedError {
             "Internal error: \(message)"
         case .uploadFailed(let message):
             "Upload failed: \(message)"
+        case .invalidApiKey(let message):
+            "Invalid API key: \(message)"
         }
     }
 }

@@ -6,9 +6,10 @@
 //
 
 import SwiftUI
-import TruoraShared
 
-class DocumentIntroViewModel: ObservableObject {
+/// ViewModel for the document intro screen.
+/// Uses @Published properties which automatically notify SwiftUI on the main thread.
+@MainActor final class DocumentIntroViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var showError = false
@@ -16,104 +17,85 @@ class DocumentIntroViewModel: ObservableObject {
     var presenter: DocumentIntroViewToPresenter?
 
     func onAppear() {
-        presenter?.viewDidLoad()
+        Task { await presenter?.viewDidLoad() }
     }
 
     func start() {
-        presenter?.startTapped()
+        Task { await presenter?.startTapped() }
     }
 
     func cancel() {
-        presenter?.cancelTapped()
+        Task { await presenter?.cancelTapped() }
     }
 }
 
 extension DocumentIntroViewModel: DocumentIntroPresenterToView {
     func showLoading() {
-        DispatchQueue.main.async {
-            self.isLoading = true
-        }
+        isLoading = true
     }
 
     func hideLoading() {
-        DispatchQueue.main.async {
-            self.isLoading = false
-        }
+        isLoading = false
     }
 
     func showError(_ message: String) {
-        DispatchQueue.main.async {
-            self.errorMessage = message
-            self.showError = true
-        }
+        errorMessage = message
+        showError = true
     }
 }
 
-// MARK: - Compose UI Integration
-
-struct ComposeDocumentIntroWrapper: UIViewControllerRepresentable {
-    let isLoading: Bool
-    let onEvent: (DocumentAutoCaptureIntroEvent) -> Void
-    let composeConfig: TruoraUIConfig
-
-    func makeUIViewController(context _: Context) -> UIViewController {
-        TruoraUIExportsKt.createDocumentIntroViewController(
-            isLoading: isLoading,
-            showHeader: true,
-            onEvent: onEvent,
-            config: composeConfig
-        )
-    }
-
-    func updateUIViewController(_: UIViewController, context _: Context) {}
-}
+// MARK: - Native SwiftUI View
 
 struct DocumentIntroView: View {
     @ObservedObject var viewModel: DocumentIntroViewModel
-    let composeConfig: TruoraUIConfig
+    @ObservedObject private var theme: TruoraTheme
+
+    init(viewModel: DocumentIntroViewModel, config: UIConfig?) {
+        self.viewModel = viewModel
+        self.theme = TruoraTheme(config: config)
+    }
 
     var body: some View {
         ZStack {
-            ComposeDocumentIntroWrapper(
-                isLoading: viewModel.isLoading,
-                onEvent: { event in
-                    if event is DocumentAutoCaptureIntroEventStartClicked {
+            VStack(spacing: 0) {
+                // Header
+                TruoraHeaderView {
+                    viewModel.cancel()
+                }
+
+                // Content
+                DocumentIntroContentView()
+
+                Spacer()
+
+                // Footer
+                VStack(spacing: 0) {
+                    TruoraFooterView(
+                        securityTip: TruoraValidationsSDKStrings.documentIntroSecurityTip,
+                        buttonText: TruoraValidationsSDKStrings.documentIntroStartCapture,
+                        isLoading: viewModel.isLoading
+                    ) {
                         viewModel.start()
-                        return
                     }
-                    if event is DocumentAutoCaptureIntroEventCancelClicked {
-                        viewModel.cancel()
-                        return
-                    }
-                },
-                composeConfig: composeConfig
-            )
-            .id(viewModel.isLoading)
-            .edgesIgnoringSafeArea(.all)
-            .navigationBarHidden(true)
-
-            if viewModel.isLoading {
-                Color.black.opacity(0.5)
-                    .edgesIgnoringSafeArea(.all)
-
-                VStack(spacing: 20) {
-                    LoadingIndicatorView(
-                        isAnimating: .constant(viewModel.isLoading),
-                        style: .large,
-                        color: .white
-                    )
-
-                    Text("Creating validation...")
-                        .foregroundColor(.white)
-                        .font(.system(size: 16, weight: .medium))
                 }
             }
+
+            // Loading overlay
+            if viewModel.isLoading {
+                LoadingOverlayView(
+                    message: TruoraValidationsSDKStrings.documentIntroCreatingValidation
+                )
+            }
         }
+        .environmentObject(theme)
+        .navigationBarHidden(true)
         .alert(isPresented: $viewModel.showError) {
             Alert(
-                title: Text("Error"),
-                message: viewModel.errorMessage.map { Text($0) },
-                dismissButton: .default(Text("OK"))
+                title: Text(NSLocalizedString("common_error", bundle: .module, comment: "")),
+                message: Text(viewModel.errorMessage ?? ""),
+                dismissButton: .default(
+                    Text(NSLocalizedString("common_ok", bundle: .module, comment: ""))
+                )
             )
         }
         .onAppear {
@@ -122,22 +104,64 @@ struct DocumentIntroView: View {
     }
 }
 
-private struct LoadingIndicatorView: UIViewRepresentable {
-    @Binding var isAnimating: Bool
-    let style: UIActivityIndicatorView.Style
-    let color: UIColor
+// MARK: - Document Intro Content
 
-    func makeUIView(context _: Context) -> UIActivityIndicatorView {
-        let indicator = UIActivityIndicatorView(style: style)
-        indicator.color = color
-        return indicator
-    }
+/// Content component for DocumentIntroView.
+/// Follows same pattern as PassiveIntroContentView with image at top, left-aligned text.
+struct DocumentIntroContentView: View {
+    @EnvironmentObject var theme: TruoraTheme
 
-    func updateUIView(_ uiView: UIActivityIndicatorView, context _: Context) {
-        if isAnimating {
-            uiView.startAnimating()
-        } else {
-            uiView.stopAnimating()
+    var body: some View {
+        GeometryReader { geometry in
+            let isPhone = geometry.size.width < 600
+            // iPad: max 850px per Figma spec, iPhone: 50% of available height
+            let maxImageHeight: CGFloat =
+                isPhone
+                    ? geometry.size.height * 0.5
+                    : min(850, geometry.size.height * 0.65)
+
+            VStack(spacing: 0) {
+                // Illustration with bottom fade - matches PassiveIntroContentView pattern
+                TruoraValidationsSDKAsset.documentIntro.swiftUIImage
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(maxHeight: maxImageHeight, alignment: .top)
+                    .frame(maxWidth: isPhone ? .infinity : 1024)
+                    .clipped()
+                    .fadingEdge(
+                        brush: Gradient(colors: [.clear, theme.colors.surface]),
+                        height: 100
+                    )
+
+                // Title & Subtitle - left-aligned per Figma
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(TruoraValidationsSDKStrings.documentIntroTitle)
+                        .font(theme.typography.titleLarge)
+                        .foregroundColor(theme.colors.onSurface)
+                        .multilineTextAlignment(.leading)
+
+                    Text(TruoraValidationsSDKStrings.documentIntroSubtitle)
+                        .font(theme.typography.bodyLarge)
+                        .foregroundColor(theme.colors.onSurface)
+                        .multilineTextAlignment(.leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+            }
         }
     }
+}
+
+// MARK: - Previews
+
+#Preview("Document Intro View") {
+    DocumentIntroView(
+        viewModel: DocumentIntroViewModel(),
+        config: nil
+    )
+}
+
+#Preview("Document Intro Content") {
+    DocumentIntroContentView()
+        .environmentObject(TruoraTheme(config: nil))
 }

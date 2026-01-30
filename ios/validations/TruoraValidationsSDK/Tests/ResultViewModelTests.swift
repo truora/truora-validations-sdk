@@ -6,11 +6,10 @@
 //
 
 import SwiftUI
-import TruoraShared
 import XCTest
 @testable import TruoraValidationsSDK
 
-class ResultViewModelTests: XCTestCase {
+@MainActor class ResultViewModelTests: XCTestCase {
     var viewModel: ResultViewModel!
     fileprivate var mockPresenter: MockResultPresenter!
 
@@ -40,9 +39,12 @@ class ResultViewModelTests: XCTestCase {
 
     // MARK: - onAppear Tests
 
-    func testOnAppearCallsPresenter() {
+    func testOnAppearCallsPresenter() async {
         // When - SwiftUI's onAppear maps to VIPER's viewDidLoad
         viewModel.onAppear()
+
+        // Wait for the async task to complete
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
 
         // Then - Verify onAppear() triggers presenter.viewDidLoad()
         XCTAssertTrue(mockPresenter.viewDidLoadCalled)
@@ -50,9 +52,12 @@ class ResultViewModelTests: XCTestCase {
 
     // MARK: - doneTapped Tests
 
-    func testDoneTappedCallsPresenter() {
+    func testDoneTappedCallsPresenter() async {
         // When
         viewModel.doneTapped()
+
+        // Wait for the async task to complete
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
 
         // Then
         XCTAssertTrue(mockPresenter.doneTappedCalled)
@@ -287,7 +292,7 @@ class ResultViewModelTests: XCTestCase {
 
 // MARK: - Mock Presenter
 
-private class MockResultPresenter: ResultViewToPresenter {
+@MainActor private class MockResultPresenter: ResultViewToPresenter {
     var viewDidLoadCalled = false
     var doneTappedCalled = false
 

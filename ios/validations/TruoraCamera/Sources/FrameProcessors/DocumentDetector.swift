@@ -9,10 +9,38 @@ import Accelerate
 import AVFoundation
 import CoreImage
 import Foundation
-@_implementationOnly import TensorFlowLite
+
+#if !COCOAPODS
+import TensorFlowLite
+#endif
+
+// MARK: - Bundle Helper for CocoaPods/SPM/Tuist compatibility
+
+private extension Bundle {
+    /// Returns the resource bundle for TruoraCamera.
+    /// Works with CocoaPods (resource_bundles), SPM (Bundle.module), and Tuist.
+    /// Cached to avoid repeated lookups during frame processing.
+    static let truoraCameraResources: Bundle = {
+        #if COCOAPODS
+        /// CocoaPods - look for the resource bundle by name
+        let frameworkBundle = Bundle(for: DocumentDetector.self)
+        if let resourceBundleURL = frameworkBundle.url(forResource: "TruoraCameraResources", withExtension: "bundle"),
+           let resourceBundle = Bundle(url: resourceBundleURL) {
+            return resourceBundle
+        }
+        // Fallback to framework bundle
+        return frameworkBundle
+        #else
+        // SPM / Tuist / Xcode - uses generated Bundle.module from Derived/Sources
+        return Bundle.module
+        #endif
+    }()
+}
 
 enum IDError: Error {
     case modelNotFound(String)
+    case modelDownloadFailed(String)
+    case modelNotReady
     case invalidInput
     case preprocessingFailed
     case detectionFailed
@@ -24,41 +52,131 @@ class DocumentDetector {
 
     var onIDDetected: (([DetectionResult]) -> Void)?
     var onError: ((Error) -> Void)?
+    var onModelReady: (() -> Void)?
 
     private let landmarkerInputWidth = 128
     private let landmarkerInputHeight = 128
 
-    // Preprocessor matching Python ResizePadLayer behavior
+    /// On-Demand Resource request for the ML model
+    /// Kept as instance variable to maintain strong reference during download
+    private var modelResourceRequest: NSBundleResourceRequest?
+
+    /// Lock for thread-safe access to isModelLoaded flag
+    private let modelLoadedLock = NSLock()
+
+    /// Whether the model has been successfully loaded (protected by modelLoadedLock)
+    private var _isModelLoaded = false
+    private var isModelLoaded: Bool {
+        get {
+            modelLoadedLock.lock()
+            defer { modelLoadedLock.unlock() }
+            return _isModelLoaded
+        }
+        set {
+            modelLoadedLock.lock()
+            defer { modelLoadedLock.unlock() }
+            _isModelLoaded = newValue
+        }
+    }
+
+    /// ODR tag for the document detection model (must match Project.swift)
+    private static let modelODRTag = "ml-document-model"
+
+    /// Preprocessor matching Python ResizePadLayer behavior
     private lazy var preprocessor: ResizePadPreprocessor = .init(
         targetSize: CGSize(width: landmarkerInputWidth, height: landmarkerInputHeight),
         outputDtype: .float32 // Range [0,1] matching Python model
     )
 
     init() {
-        loadModels()
+        loadModelWithODR()
     }
 
-    private func loadModels() {
-        do {
-            // Load document detection model
-            guard let landmarkerPath = Bundle.module.path(forResource: "general_int8", ofType: "tflite") else {
-                throw IDError.modelNotFound("general_int8.tflite")
+    deinit {
+        // End accessing ODR resources when detector is deallocated
+        modelResourceRequest?.endAccessingResources()
+    }
+
+    // MARK: - On-Demand Resource Loading
+
+    /// Loads the ML model using On-Demand Resources
+    /// The model will be downloaded if not already cached on device
+    private func loadModelWithODR() {
+        let tags: Set<String> = [Self.modelODRTag]
+        modelResourceRequest = NSBundleResourceRequest(tags: tags)
+
+        // Set loading priority to high since we need it for detection
+        modelResourceRequest?.loadingPriority = NSBundleResourceRequestLoadingPriorityUrgent
+
+        modelResourceRequest?.beginAccessingResources { [weak self] error in
+            if let error {
+                DispatchQueue.main.async {
+                    self?.onError?(IDError.modelDownloadFailed(error.localizedDescription))
+                }
+                return
             }
 
-            var landmarkerOptions = Interpreter.Options()
-
-            landmarkerOptions.threadCount = 2
-            landmarkerInterpreter = try Interpreter(modelPath: landmarkerPath, options: landmarkerOptions)
-
-            try landmarkerInterpreter?.allocateTensors()
-        } catch {
-            onError?(error)
+            // Resources are now available, load the model
+            self?.loadModels()
         }
     }
 
+    /// Conditionally accesses ODR resources before loading model
+    /// Useful to check if model is already downloaded without triggering download
+    func checkModelAvailability(completion: @escaping (Bool) -> Void) {
+        let tags: Set<String> = [Self.modelODRTag]
+        let request = NSBundleResourceRequest(tags: tags)
+        // Capture request strongly in closure to prevent deallocation before completion
+        request.conditionallyBeginAccessingResources { available in
+            _ = request // Keep request alive until completion handler executes
+            completion(available)
+        }
+    }
+
+    private func loadModels() {
+        detectionQueue.async { [weak self] in
+            guard let self else { return }
+
+            do {
+                // Load document detection model from bundle
+                // After ODR download, the resource is available in Bundle.module
+                guard let landmarkerPath = Bundle.truoraCameraResources.path(
+                    forResource: "general_int8", ofType: "tflite"
+                ) else {
+                    throw IDError.modelNotFound("general_int8.tflite")
+                }
+
+                var landmarkerOptions = Interpreter.Options()
+                landmarkerOptions.threadCount = 2
+                self.landmarkerInterpreter = try Interpreter(modelPath: landmarkerPath, options: landmarkerOptions)
+
+                try self.landmarkerInterpreter?.allocateTensors()
+                self.isModelLoaded = true
+
+                DispatchQueue.main.async {
+                    self.onModelReady?()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.onError?(error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Detection
+
     func detectID(in sampleBuffer: CMSampleBuffer) {
+        guard isModelLoaded else {
+            // Model not ready yet - silently skip frame
+            // The camera will continue sending frames and we'll process once ready
+            return
+        }
+
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            onError?(IDError.invalidInput)
+            DispatchQueue.main.async { [weak self] in
+                self?.onError?(IDError.invalidInput)
+            }
             return
         }
 
@@ -105,7 +223,7 @@ class DocumentDetector {
     /// Parses model output and converts to CGRect format
     /// - Parameters:
     ///   - interpreter: TFLite interpreter with output tensors
-    ///   - preprocessResult: Contains scale and original size (not used since model outputs are pre-normalized)
+    ///   - preprocessResult: Contains scale and original size for coordinate mapping
     /// - Returns: Array of DetectionResult with normalized coordinates [0,1] relative to original image
     private func parseLandmarkerOutputs(
         from interpreter: Interpreter,
@@ -123,6 +241,20 @@ class DocumentDetector {
             return []
         }
 
+        // Calculate normalization factors for mapping centered-padded coordinates back to original [0,1]
+        // This matches Android's approach in DocumentDetectorImpl.parseResults
+        let originalWidth = Float(preprocessResult.originalSize.width)
+        let originalHeight = Float(preprocessResult.originalSize.height)
+
+        // Guard against division by zero for invalid image dimensions
+        guard originalWidth > 0, originalHeight > 0 else {
+            return []
+        }
+
+        let maxDim = max(originalWidth, originalHeight)
+        let normFactorX = maxDim / originalWidth
+        let normFactorY = maxDim / originalHeight
+
         // Model outputs normalized coordinates [0,1] in format: (x_min, y_min, x_max, y_max, score_front, score_back)
         // We need to convert from corner format (x_min, y_min, x_max, y_max) to CGRect format (x, y, width, height)
         // where width = x_max - x_min and height = y_max - y_min
@@ -137,13 +269,28 @@ class DocumentDetector {
             let xMax = landmarks[offset + 2]
             let yMax = landmarks[offset + 3]
 
+            // Map centered-padded coordinates back to original normalized [0..1]
+            // Formula: norm_coord = (model_coord - 0.5) * normFactor + 0.5
+            let left = (xMin - 0.5) * normFactorX + 0.5
+            let top = (yMin - 0.5) * normFactorY + 0.5
+            let right = (xMax - 0.5) * normFactorX + 0.5
+            let bottom = (yMax - 0.5) * normFactorY + 0.5
+
+            let width = right - left
+            let height = bottom - top
+
+            // Skip invalid bounding boxes with non-positive dimensions
+            guard width > 0, height > 0 else {
+                continue
+            }
+
             results.append(DetectionResult(
                 category: .document(scores: [landmarks[offset + 4], landmarks[offset + 5]]),
                 boundingBox: CGRect(
-                    x: CGFloat(xMin),
-                    y: CGFloat(yMin),
-                    width: CGFloat(xMax - xMin),
-                    height: CGFloat(yMax - yMin)
+                    x: CGFloat(left),
+                    y: CGFloat(top),
+                    width: CGFloat(width),
+                    height: CGFloat(height)
                 ),
                 confidence: 1.0
             ))

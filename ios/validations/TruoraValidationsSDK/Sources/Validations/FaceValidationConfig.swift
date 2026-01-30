@@ -14,7 +14,7 @@ import Foundation
 public class Face {
     private var _referenceFace: ReferenceFace?
     private var _similarityThreshold: Float = 0.8
-    private var _shouldWaitForResults: Bool = true
+    private var _shouldWaitForResults: Bool = false
     private var _useAutocapture: Bool = true
     private var _timeoutSeconds: Int = 60
 
@@ -63,7 +63,7 @@ public class Face {
 
     /// Sets whether to wait and show the validation results to the user.
     ///
-    /// - Parameter enabled: true to show results view, false to skip it (default: true)
+    /// - Parameter enabled: true to show results view, false to skip it (default: false)
     /// - Returns: This Face for method chaining
     @discardableResult
     public func enableWaitForResults(_ enabled: Bool) -> Face {

@@ -9,8 +9,8 @@ import Foundation
 import SwiftUI
 import UIKit
 
-class PassiveIntroConfigurator {
-    static func buildModule(
+enum PassiveIntroConfigurator {
+    @MainActor static func buildModule(
         router: ValidationRouter,
         enrollmentTask: Task<Void, Error>? = nil
     ) throws -> UIViewController {
@@ -25,13 +25,8 @@ class PassiveIntroConfigurator {
         viewModel.presenter = presenter
         interactor.presenter = presenter
 
-        let composeConfig = ValidationConfig.shared.composeConfig
-        let swiftUIView = PassiveIntroView(
-            viewModel: viewModel,
-            composeConfig: composeConfig
-        )
-        let hostingController = UIHostingController(rootView: swiftUIView)
-
-        return hostingController
+        let uiConfig = ValidationConfig.shared.uiConfig
+        let swiftUIView = PassiveIntroView(viewModel: viewModel, config: uiConfig)
+        return UIHostingController(rootView: swiftUIView)
     }
 }

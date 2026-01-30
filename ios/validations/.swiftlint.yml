@@ -1,0 +1,62 @@
+included:
+    - TruoraValidationsSDK
+    - SampleApp
+    - TruoraCamera
+opt_in_rules:
+    - closure_end_indentation
+    - empty_count
+    - explicit_init
+    - first_where
+    - force_unwrapping
+    - implicitly_unwrapped_optional
+    - legacy_random
+    - multiline_arguments
+    - multiline_parameters
+    - operator_usage_whitespace
+    - redundant_nil_coalescing
+    - sorted_imports
+    - toggle_bool
+    - trailing_closure
+    - unneeded_parentheses_in_closure_argument
+    - vertical_parameter_alignment_on_call
+analyzer_rules:
+    - unused_declaration
+    - unused_import
+reporter: "xcode"
+disabled_rules:
+    - opening_brace
+    - function_parameter_count
+    - file_length
+excluded:
+    - "Derived"
+    - "*.generated.swift"
+    - "TensorFlowLite"
+    - "TensorFlowLiteSwift"
+    - "**/*Tests.swift"
+    - "**/Tests/**"
+    - "**/MockTimeProvider.swift"
+    - "**/TestHelpers.swift"
+cyclomatic_complexity:
+    ignores_case_statements: true
+indentation: 4
+
+# Allow short names for country codes and common abbreviations
+identifier_name:
+    min_length:
+        warning: 2
+    excluded:
+        - vm
+        - id
+
+# Allow longer functions in camera setup code
+function_body_length:
+    warning: 60
+    error: 100
+
+# Line length configuration
+line_length:
+    warning: 120
+    error: 200
+    ignores_urls: true
+    ignores_function_declarations: false
+    ignores_comments: true

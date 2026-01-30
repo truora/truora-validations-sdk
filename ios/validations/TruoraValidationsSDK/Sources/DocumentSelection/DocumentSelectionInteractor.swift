@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import TruoraShared
 
 final class DocumentSelectionInteractor {
     weak var presenter: DocumentSelectionInteractorToPresenter?
@@ -18,10 +17,10 @@ final class DocumentSelectionInteractor {
 
 extension DocumentSelectionInteractor: DocumentSelectionPresenterToInteractor {
     func fetchSupportedCountries() {
-        // Must match KMP supported countries.
-        let countries: [TruoraCountry] = [
+        // Supported countries.
+        let countries: [NativeCountry] = [
             .all, .ar, .br, .cl, .co, .cr, .mx, .pe, .sv, .ve
         ]
-        presenter?.didLoadCountries(countries)
+        Task { await presenter?.didLoadCountries(countries) }
     }
 }

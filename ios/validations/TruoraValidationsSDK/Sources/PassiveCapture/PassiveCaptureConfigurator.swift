@@ -9,10 +9,13 @@ import Foundation
 import SwiftUI
 import UIKit
 
-class PassiveCaptureConfigurator {
-    static func buildModule(router: ValidationRouter, validationId: String) throws -> UIViewController {
-        let useAutocapture = ValidationConfig.shared.faceConfig.useAutocapture
+enum PassiveCaptureConfigurator {
+    @MainActor static func buildModule(
+        router: ValidationRouter,
+        validationId: String
+    ) throws -> UIViewController {
         let viewModel = PassiveCaptureViewModel()
+        let useAutocapture = ValidationConfig.shared.faceConfig.useAutocapture
 
         let presenter = PassiveCapturePresenter(
             view: viewModel,
@@ -26,15 +29,13 @@ class PassiveCaptureConfigurator {
             validationId: validationId
         )
 
-        viewModel.presenter = presenter
         presenter.interactor = interactor
+        viewModel.presenter = presenter
 
-        let composeConfig = ValidationConfig.shared.composeConfig
-        let swiftUIView = PassiveCaptureView(
-            viewModel: viewModel,
-            composeConfig: composeConfig
-        )
+        let uiConfig = ValidationConfig.shared.uiConfig
+        let swiftUIView = PassiveCaptureView(viewModel: viewModel, config: uiConfig)
         let hostingController = UIHostingController(rootView: swiftUIView)
+        hostingController.view.backgroundColor = .clear // Ensure transparent background
         hostingController.modalPresentationStyle = .fullScreen
 
         return hostingController

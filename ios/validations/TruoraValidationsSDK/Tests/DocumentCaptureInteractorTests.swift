@@ -5,14 +5,13 @@
 //  Created by Truora on 26/12/25.
 //
 
-import TruoraShared
 import XCTest
 @testable import TruoraValidationsSDK
 
 // swiftlint:disable type_body_length
 /// Tests for DocumentCaptureInteractor
 /// Verifies upload URL management, photo upload logic, and error handling
-final class DocumentCaptureInteractorTests: XCTestCase {
+@MainActor final class DocumentCaptureInteractorTests: XCTestCase {
     // MARK: - Properties
 
     private var sut: DocumentCaptureInteractor!
@@ -38,10 +37,11 @@ final class DocumentCaptureInteractorTests: XCTestCase {
 
     // MARK: - URL Configuration Tests
 
-    func testSetUploadUrls_storesUrlsCorrectly() {
+    func testSetUploadUrls_storesUrlsCorrectly() async throws {
         // Given
         let frontUrl = "https://example.com/front"
         let reverseUrl = "https://example.com/reverse"
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         // When
         sut.setUploadUrls(frontUploadUrl: frontUrl, reverseUploadUrl: reverseUrl)
@@ -50,6 +50,8 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         let photoData = Data([0x01, 0x02])
 
         sut.uploadPhoto(side: .front, photoData: photoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
+
         XCTAssertTrue(
             mockPresenter.photoUploadFailedCalled,
             "Should attempt upload with front URL (fails without API client)"
@@ -59,16 +61,18 @@ final class DocumentCaptureInteractorTests: XCTestCase {
 
     // MARK: - Upload Photo Tests
 
-    func testUploadPhoto_frontSide_withEmptyData_callsUploadFailed() {
+    func testUploadPhoto_frontSide_withEmptyData_callsUploadFailed() async throws {
         // Given
         sut.setUploadUrls(
             frontUploadUrl: "https://example.com/front",
             reverseUploadUrl: "https://example.com/reverse"
         )
         let emptyData = Data()
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         // When
         sut.uploadPhoto(side: .front, photoData: emptyData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
 
         // Then
         XCTAssertTrue(mockPresenter.photoUploadFailedCalled, "Should call upload failed")
@@ -76,16 +80,18 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         XCTAssertTrue(mockPresenter.lastError?.localizedDescription.contains("empty") ?? false)
     }
 
-    func testUploadPhoto_backSide_withEmptyData_callsUploadFailed() {
+    func testUploadPhoto_backSide_withEmptyData_callsUploadFailed() async throws {
         // Given
         sut.setUploadUrls(
             frontUploadUrl: "https://example.com/front",
             reverseUploadUrl: "https://example.com/reverse"
         )
         let emptyData = Data()
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         // When
         sut.uploadPhoto(side: .back, photoData: emptyData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
 
         // Then
         XCTAssertTrue(mockPresenter.photoUploadFailedCalled, "Should call upload failed")
@@ -93,7 +99,7 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         XCTAssertTrue(mockPresenter.lastError?.localizedDescription.contains("empty") ?? false)
     }
 
-    func testUploadPhoto_frontSide_withoutAPIClient_callsUploadFailed() {
+    func testUploadPhoto_frontSide_withoutAPIClient_callsUploadFailed() async throws {
         // Given
         sut.setUploadUrls(
             frontUploadUrl: "https://example.com/front",
@@ -101,9 +107,11 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         )
         let photoData = Data([0x01, 0x02, 0x03])
         // API client is not configured (ValidationConfig not set up)
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         // When
         sut.uploadPhoto(side: .front, photoData: photoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
 
         // Then
         XCTAssertTrue(mockPresenter.photoUploadFailedCalled, "Should call upload failed")
@@ -113,9 +121,10 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         )
     }
 
-    func testUploadPhoto_frontSide_withoutFrontUrl_callsUploadFailed() async {
+    func testUploadPhoto_frontSide_withoutFrontUrl_callsUploadFailed() async throws {
         // Given - Don't set URLs but configure API client so we reach URL validation
         let photoData = Data([0x01, 0x02, 0x03])
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         do {
             try await ValidationConfig.shared.configure(
@@ -129,6 +138,7 @@ final class DocumentCaptureInteractorTests: XCTestCase {
 
         // When
         sut.uploadPhoto(side: .front, photoData: photoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
 
         // Then
         XCTAssertTrue(mockPresenter.photoUploadFailedCalled, "Should call upload failed")
@@ -136,9 +146,10 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         XCTAssertTrue(mockPresenter.lastError?.localizedDescription.contains("No upload URL") ?? false)
     }
 
-    func testUploadPhoto_backSide_withoutReverseUrl_callsUploadFailed() async {
+    func testUploadPhoto_backSide_withoutReverseUrl_callsUploadFailed() async throws {
         // Given - Don't set URLs but configure API client so we reach URL validation
         let photoData = Data([0x01, 0x02, 0x03])
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         do {
             try await ValidationConfig.shared.configure(
@@ -152,6 +163,7 @@ final class DocumentCaptureInteractorTests: XCTestCase {
 
         // When
         sut.uploadPhoto(side: .back, photoData: photoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
 
         // Then
         XCTAssertTrue(mockPresenter.photoUploadFailedCalled, "Should call upload failed")
@@ -198,7 +210,7 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         interactor.uploadPhoto(side: .front, photoData: photoData)
 
         // Then
-        wait(for: [uploadExpectation, presenterExpectation], timeout: 1.0)
+        await fulfillment(of: [uploadExpectation, presenterExpectation], timeout: 1.0)
 
         XCTAssertTrue(uploadCalled, "Upload handler should be called")
         XCTAssertEqual(capturedUrl, "https://example.com/front")
@@ -257,9 +269,10 @@ final class DocumentCaptureInteractorTests: XCTestCase {
 
     // MARK: - Kotlin ByteArray Conversion Tests
 
-    func testConvertDataToKotlinByteArray_convertsCorrectly() {
+    func testConvertDataToKotlinByteArray_convertsCorrectly() async throws {
         // Given
         let testData = Data([0x01, 0x02, 0x03, 0x04, 0x05])
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         // When - Use private method indirectly via upload
         // We can't directly test the private method, but we can verify it's used correctly
@@ -271,6 +284,7 @@ final class DocumentCaptureInteractorTests: XCTestCase {
 
         // This will fail at API client check, but verifies data is handled
         sut.uploadPhoto(side: .front, photoData: testData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
 
         // Then - Verify the data was processed (failed at API client, not data conversion)
         XCTAssertTrue(mockPresenter.photoUploadFailedCalled)
@@ -280,9 +294,10 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         )
     }
 
-    func testConvertDataToKotlinByteArray_emptyData_returnsEmptyArray() {
+    func testConvertDataToKotlinByteArray_emptyData_returnsEmptyArray() async throws {
         // Given
         let emptyData = Data()
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         // When
         sut.setUploadUrls(
@@ -290,6 +305,7 @@ final class DocumentCaptureInteractorTests: XCTestCase {
             reverseUploadUrl: "https://example.com/reverse"
         )
         sut.uploadPhoto(side: .front, photoData: emptyData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
 
         // Then - Should fail at empty data validation, not conversion
         XCTAssertTrue(mockPresenter.photoUploadFailedCalled)
@@ -319,13 +335,102 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         XCTAssertNil(interactorOptional, "Interactor should be deallocated")
     }
 
-    // MARK: - Image Evaluation Skip Tests
+    // MARK: - Image Evaluation Tests
 
-    func testEvaluateImage_driverLicense_skipsEvaluation() {
+    func testEvaluateImage_emptyData_callsEvaluationErrored() async throws {
+        // Given
+        let emptyData = Data()
+        mockPresenter.imageEvaluationErroredExpectation = expectation(description: "Evaluation errored")
+
+        // When
+        sut.evaluateImage(
+            side: .front,
+            photoData: emptyData,
+            country: "CO",
+            documentType: "national-id",
+            validationId: "test-123"
+        )
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.imageEvaluationErroredExpectation)], timeout: 1.0)
+
+        // Then
+        XCTAssertTrue(mockPresenter.imageEvaluationErroredCalled, "Should call evaluation errored")
+        XCTAssertEqual(mockPresenter.lastEvaluationSide, .front)
+        XCTAssertTrue(mockPresenter.lastEvaluationError?.localizedDescription.contains("empty") ?? false)
+    }
+
+    func testEvaluateImage_withoutAPIClient_callsEvaluationErrored() async throws {
         // Given
         let photoData = Data([0x01, 0x02, 0x03])
+        mockPresenter.imageEvaluationErroredExpectation = expectation(description: "Evaluation errored")
 
-        // When - All driver's licenses should skip evaluation
+        // When - API client is not configured (ValidationConfig not set up)
+        sut.evaluateImage(
+            side: .front,
+            photoData: photoData,
+            country: "CO",
+            documentType: "national-id",
+            validationId: "test-123"
+        )
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.imageEvaluationErroredExpectation)], timeout: 1.0)
+
+        // Then
+        XCTAssertTrue(mockPresenter.imageEvaluationErroredCalled, "Should call evaluation errored")
+        XCTAssertEqual(mockPresenter.lastEvaluationSide, .front)
+        XCTAssertTrue(
+            mockPresenter.lastEvaluationError?.localizedDescription.contains("API client not configured") ?? false
+        )
+    }
+
+    func testEvaluateImage_withValidConfig_callsEvaluationStarted() async throws {
+        // Given
+        let photoData = Data([0x01, 0x02, 0x03])
+        mockPresenter.imageEvaluationStartedExpectation = expectation(description: "Evaluation started")
+        try? await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "test-account")
+
+        // When
+        sut.evaluateImage(
+            side: .front,
+            photoData: photoData,
+            country: "CO",
+            documentType: "national-id",
+            validationId: "test-123"
+        )
+
+        // Then
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.imageEvaluationStartedExpectation)], timeout: 1.0)
+        XCTAssertTrue(mockPresenter.imageEvaluationStartedCalled, "Should start evaluation")
+        XCTAssertEqual(mockPresenter.lastEvaluationSide, .front)
+        XCTAssertEqual(mockPresenter.lastEvaluationPreviewData, photoData)
+    }
+
+    func testEvaluateImage_backSide_callsEvaluationStarted() async throws {
+        // Given
+        let photoData = Data([0x01, 0x02, 0x03])
+        mockPresenter.imageEvaluationStartedExpectation = expectation(description: "Evaluation started")
+        try? await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "test-account")
+
+        // When
+        sut.evaluateImage(
+            side: .back,
+            photoData: photoData,
+            country: "CO",
+            documentType: "national-id",
+            validationId: "test-123"
+        )
+
+        // Then
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.imageEvaluationStartedExpectation)], timeout: 1.0)
+        XCTAssertTrue(mockPresenter.imageEvaluationStartedCalled, "Should start evaluation")
+        XCTAssertEqual(mockPresenter.lastEvaluationSide, .back)
+    }
+
+    func testEvaluateImage_driverLicense_proceedsWithEvaluation() async throws {
+        // Given
+        let photoData = Data([0x01, 0x02, 0x03])
+        mockPresenter.imageEvaluationStartedExpectation = expectation(description: "Evaluation started")
+        try? await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "test-account")
+
+        // When - Driver's license should proceed with evaluation
         sut.evaluateImage(
             side: .front,
             photoData: photoData,
@@ -335,148 +440,17 @@ final class DocumentCaptureInteractorTests: XCTestCase {
         )
 
         // Then
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled, "Should NOT start evaluation for driver's license")
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled, "Should immediately succeed")
-        XCTAssertEqual(mockPresenter.lastEvaluationSide, .front)
-        XCTAssertEqual(mockPresenter.lastEvaluationPreviewData, photoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.imageEvaluationStartedExpectation)], timeout: 1.0)
+        XCTAssertTrue(mockPresenter.imageEvaluationStartedCalled, "Should start evaluation for driver's license")
     }
 
-    func testEvaluateImage_cnh_skipsEvaluation() {
+    func testEvaluateImage_passport_proceedsWithEvaluation() async throws {
         // Given
         let photoData = Data([0x01, 0x02, 0x03])
+        mockPresenter.imageEvaluationStartedExpectation = expectation(description: "Evaluation started")
+        try? await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "test-account")
 
-        // When - CNH (Brazil's driver license) should skip evaluation
-        sut.evaluateImage(
-            side: .back,
-            photoData: photoData,
-            country: "BR",
-            documentType: "cnh",
-            validationId: "test-123"
-        )
-
-        // Then
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled, "Should NOT start evaluation for CNH")
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled, "Should immediately succeed")
-        XCTAssertEqual(mockPresenter.lastEvaluationSide, .back)
-    }
-
-    func testEvaluateImage_foreignId_colombia_skipsEvaluation() {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-
-        // When
-        sut.evaluateImage(
-            side: .front,
-            photoData: photoData,
-            country: "CO",
-            documentType: "foreign-id",
-            validationId: "test-123"
-        )
-
-        // Then
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled)
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled)
-    }
-
-    func testEvaluateImage_foreignId_peru_skipsEvaluation() {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-
-        // When
-        sut.evaluateImage(
-            side: .front,
-            photoData: photoData,
-            country: "PE",
-            documentType: "foreign-id",
-            validationId: "test-123"
-        )
-
-        // Then
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled)
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled)
-    }
-
-    func testEvaluateImage_foreignId_costaRica_skipsEvaluation() {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-
-        // When
-        sut.evaluateImage(
-            side: .front,
-            photoData: photoData,
-            country: "CR",
-            documentType: "foreign-id",
-            validationId: "test-123"
-        )
-
-        // Then
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled)
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled)
-    }
-
-    func testEvaluateImage_nationalId_costaRica_skipsEvaluation() {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-
-        // When
-        sut.evaluateImage(
-            side: .front,
-            photoData: photoData,
-            country: "CR",
-            documentType: "national-id",
-            validationId: "test-123"
-        )
-
-        // Then
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled)
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled)
-    }
-
-    func testEvaluateImage_nationalId_venezuela_skipsEvaluation() {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-
-        // When
-        sut.evaluateImage(
-            side: .front,
-            photoData: photoData,
-            country: "VE",
-            documentType: "national-id",
-            validationId: "test-123"
-        )
-
-        // Then
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled)
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled)
-    }
-
-    // Re-enable when image evaluation API is restored (AL-269)
-    // Currently all valid country/document combos skip evaluation
-    func testEvaluateImage_nationalId_colombia_skipsEvaluation_whileApiDisabled() {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-
-        // When - Colombia national ID (valid combo) skips while API is disabled
-        sut.evaluateImage(
-            side: .front,
-            photoData: photoData,
-            country: "CO",
-            documentType: "national-id",
-            validationId: "test-123"
-        )
-
-        // Then - Currently bypassed, succeeds immediately
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled)
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled)
-    }
-
-    // Re-enable when image evaluation API is restored (AL-269)
-    // Currently all valid country/document combos skip evaluation
-    func testEvaluateImage_passport_skipsEvaluation_whileApiDisabled() {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-
-        // When - Passport (valid combo) skips while API is disabled
+        // When - Passport should proceed with evaluation
         sut.evaluateImage(
             side: .front,
             photoData: photoData,
@@ -485,62 +459,23 @@ final class DocumentCaptureInteractorTests: XCTestCase {
             validationId: "test-123"
         )
 
-        // Then - Currently bypassed, succeeds immediately
-        XCTAssertFalse(mockPresenter.imageEvaluationStartedCalled)
-        XCTAssertTrue(mockPresenter.imageEvaluationSucceededCalled)
-    }
-
-    func testEvaluateImage_invalidCountry_proceedsWithEvaluation() async {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-        mockPresenter.imageEvaluationStartedExpectation = expectation(description: "Evaluation started")
-        try? await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "test-account")
-
-        // When - Invalid country code should proceed with evaluation (safe default)
-        sut.evaluateImage(
-            side: .front,
-            photoData: photoData,
-            country: "INVALID",
-            documentType: "national-id",
-            validationId: "test-123"
-        )
-
         // Then
-        await fulfillment(of: [mockPresenter.imageEvaluationStartedExpectation!], timeout: 1.0)
-        XCTAssertTrue(mockPresenter.imageEvaluationStartedCalled, "Should start evaluation with invalid country")
-    }
-
-    func testEvaluateImage_invalidDocumentType_proceedsWithEvaluation() async {
-        // Given
-        let photoData = Data([0x01, 0x02, 0x03])
-        mockPresenter.imageEvaluationStartedExpectation = expectation(description: "Evaluation started")
-        try? await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "test-account")
-
-        // When - Invalid document type should proceed with evaluation (safe default)
-        sut.evaluateImage(
-            side: .front,
-            photoData: photoData,
-            country: "CO",
-            documentType: "invalid-doc-type",
-            validationId: "test-123"
-        )
-
-        // Then
-        await fulfillment(of: [mockPresenter.imageEvaluationStartedExpectation!], timeout: 1.0)
-        XCTAssertTrue(mockPresenter.imageEvaluationStartedCalled, "Should start evaluation with invalid document type")
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.imageEvaluationStartedExpectation)], timeout: 1.0)
+        XCTAssertTrue(mockPresenter.imageEvaluationStartedCalled, "Should start evaluation for passport")
     }
 }
 
 // MARK: - Mock Classes
 
-private final class MockDocumentCapturePresenter {
+@MainActor private final class MockDocumentCapturePresenter {
     private(set) var photoUploadCompletedCalled = false
     private(set) var photoUploadFailedCalled = false
     var photoUploadCompletedExpectation: XCTestExpectation?
+    var photoUploadFailedExpectation: XCTestExpectation?
 
     private(set) var lastCompletedSide: DocumentCaptureSide?
     private(set) var lastFailedSide: DocumentCaptureSide?
-    private(set) var lastError: ValidationError?
+    private(set) var lastError: TruoraException?
 
     private(set) var imageEvaluationStartedCalled = false
     private(set) var imageEvaluationSucceededCalled = false
@@ -549,11 +484,13 @@ private final class MockDocumentCapturePresenter {
 
     var imageEvaluationStartedExpectation: XCTestExpectation?
     var imageEvaluationSucceededExpectation: XCTestExpectation?
+    var imageEvaluationFailedExpectation: XCTestExpectation?
+    var imageEvaluationErroredExpectation: XCTestExpectation?
 
     private(set) var lastEvaluationSide: DocumentCaptureSide?
     private(set) var lastEvaluationPreviewData: Data?
     private(set) var lastEvaluationFailureReason: String?
-    private(set) var lastEvaluationError: ValidationError?
+    private(set) var lastEvaluationError: TruoraException?
 }
 
 extension MockDocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
@@ -563,10 +500,11 @@ extension MockDocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
         photoUploadCompletedExpectation?.fulfill()
     }
 
-    func photoUploadFailed(side: DocumentCaptureSide, error: ValidationError) {
+    func photoUploadFailed(side: DocumentCaptureSide, error: TruoraException) async {
         photoUploadFailedCalled = true
         lastFailedSide = side
         lastError = error
+        photoUploadFailedExpectation?.fulfill()
     }
 
     func imageEvaluationStarted(side: DocumentCaptureSide, previewData: Data) {
@@ -588,12 +526,14 @@ extension MockDocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
         lastEvaluationSide = side
         lastEvaluationPreviewData = previewData
         lastEvaluationFailureReason = reason
+        imageEvaluationFailedExpectation?.fulfill()
     }
 
-    func imageEvaluationErrored(side: DocumentCaptureSide, error: ValidationError) {
+    func imageEvaluationErrored(side: DocumentCaptureSide, error: TruoraException) async {
         imageEvaluationErroredCalled = true
         lastEvaluationSide = side
         lastEvaluationError = error
+        imageEvaluationErroredExpectation?.fulfill()
     }
 }
 

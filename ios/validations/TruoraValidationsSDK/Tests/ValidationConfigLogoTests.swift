@@ -9,10 +9,23 @@ import Foundation
 import XCTest
 @testable import TruoraValidationsSDK
 
-final class ValidationConfigLogoTests: XCTestCase {
-    private final class MockLogoDownloader: LogoDownloading {
+@MainActor final class ValidationConfigLogoTests: XCTestCase {
+    @MainActor private final class MockLogoDownloader: LogoDownloading {
         var downloadedUrl: URL?
         var resultToReturn: Result<Data, Error>?
+
+        func downloadLogo(from url: URL) async throws -> Data {
+            downloadedUrl = url
+            guard let result = resultToReturn else {
+                throw URLError(.unknown)
+            }
+            switch result {
+            case .success(let data):
+                return data
+            case .failure(let error):
+                throw error
+            }
+        }
 
         @discardableResult
         func downloadLogo(from url: URL, completion: @escaping (Result<Data, Error>) -> Void) -> URLSessionDataTask? {
@@ -29,7 +42,7 @@ final class ValidationConfigLogoTests: XCTestCase {
         }
     }
 
-    func testConfigureWithLogoUrlTriggersDownloadAndUpdatesComposeConfigOnSuccess() async throws {
+    func testConfigureWithLogoUrlTriggersDownloadAndUpdatesUIConfigOnSuccess() async throws {
         let mock = MockLogoDownloader()
         mock.resultToReturn = .success(Data([0x0A, 0x0B, 0x0C]))
         let sut = ValidationConfig.makeForTesting(logoDownloader: mock)
@@ -46,10 +59,10 @@ final class ValidationConfigLogoTests: XCTestCase {
         )
 
         XCTAssertEqual(mock.downloadedUrl?.absoluteString, "https://example.com/logo.png")
-        XCTAssertNotNil(sut.composeConfig.logo, "Logo should be set after successful download")
-        XCTAssertEqual(sut.composeConfig.logo?.logoData.size, 3)
-        XCTAssertEqual(sut.composeConfig.logo?.width?.floatValue, Float(111))
-        XCTAssertEqual(sut.composeConfig.logo?.height?.floatValue, Float(22))
+        XCTAssertNotNil(sut.uiConfig.customLogoData, "Logo should be set after successful download")
+        XCTAssertEqual(sut.uiConfig.customLogoData?.count, 3)
+        XCTAssertEqual(sut.uiConfig.logoWidth, 111)
+        XCTAssertEqual(sut.uiConfig.logoHeight, 22)
     }
 
     func testConfigureWithLogoUrlDoesNotCrashOnDownloadFailure() async throws {
@@ -69,6 +82,6 @@ final class ValidationConfigLogoTests: XCTestCase {
         )
 
         XCTAssertEqual(mock.downloadedUrl?.absoluteString, "https://example.com/logo.png")
-        XCTAssertNil(sut.composeConfig.logo, "Logo should remain nil when download fails")
+        XCTAssertNil(sut.uiConfig.customLogoData, "Logo should remain nil when download fails")
     }
 }

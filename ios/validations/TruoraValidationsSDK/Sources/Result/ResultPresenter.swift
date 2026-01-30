@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import TruoraShared
 
 final class ResultPresenter {
     weak var view: ResultPresenterToView?
@@ -15,16 +14,34 @@ final class ResultPresenter {
 
     private let validationId: String
     private let shouldWaitForResults: Bool
-    private let loadingType: LoadingType
+    private let loadingType: ResultLoadingType
+    private let timeProvider: TimeProvider
 
     private var finalResult: ValidationResult?
 
     private var delegateCalled = false
 
-    init(validationId: String, loadingType: LoadingType, shouldWaitForResults: Bool) {
-        self.validationId = validationId
+    init(
+        view: ResultPresenterToView,
+        interactor: ResultPresenterToInteractor?,
+        router: ValidationRouter,
+        loadingType: ResultLoadingType,
+        timeProvider: TimeProvider = RealTimeProvider()
+    ) {
+        self.view = view
+        self.interactor = interactor
+        self.router = router
+        self.validationId = interactor?.validationId ?? ""
         self.loadingType = loadingType
-        self.shouldWaitForResults = loadingType == .document ? true : shouldWaitForResults
+        self.timeProvider = timeProvider
+
+        let configWaitForResults = switch loadingType {
+        case .face: ValidationConfig.shared.faceConfig.shouldWaitForResults
+        case .document: ValidationConfig.shared.documentConfig.shouldWaitForResults
+        }
+
+        // Document validation always waits for results in current implementation
+        self.shouldWaitForResults = loadingType == .document ? true : configWaitForResults
     }
 
     deinit {
@@ -35,19 +52,19 @@ final class ResultPresenter {
 // MARK: - ResultViewToPresenter
 
 extension ResultPresenter: ResultViewToPresenter {
-    func viewDidLoad() {
+    func viewDidLoad() async {
         if shouldWaitForResults {
             // Show loading and wait for result
-            view?.showLoading()
+            await view?.showLoading()
             interactor?.startPolling()
         } else {
             // Show completed immediately, poll in background
-            view?.showCompleted()
+            await view?.showCompleted()
             interactor?.startPolling()
         }
     }
 
-    func doneTapped() {
+    func doneTapped() async {
         guard let router else {
             print("⚠️ ResultPresenter: Router is nil, cannot dismiss flow")
             return
@@ -59,10 +76,10 @@ extension ResultPresenter: ResultViewToPresenter {
                 return
             }
 
-            router.dismissFlow()
-            notifyDelegate(with: result)
+            await router.dismissFlow()
+            await notifyDelegate(with: result)
         } else {
-            router.dismissFlow()
+            await router.dismissFlow()
         }
     }
 }
@@ -70,20 +87,20 @@ extension ResultPresenter: ResultViewToPresenter {
 // MARK: - ResultInteractorToPresenter
 
 extension ResultPresenter: ResultInteractorToPresenter {
-    func pollingCompleted(result: ValidationResult) {
+    func pollingCompleted(result: ValidationResult) async {
         finalResult = result
         print("🟢 ResultPresenter: Polling completed with status: \(result.status)")
 
         if shouldWaitForResults {
             // Update UI to show result
-            view?.showResult(result)
+            await view?.showResult(result)
         } else {
             // UI is already showing "Completed", just notify delegate
-            notifyDelegate(with: result)
+            await notifyDelegate(with: result)
         }
     }
 
-    func pollingFailed(error: ValidationError) {
+    func pollingFailed(error: TruoraException) async {
         print("❌ ResultPresenter: Polling failed: \(error)")
 
         // Create a failed result for display purposes
@@ -96,10 +113,10 @@ extension ResultPresenter: ResultInteractorToPresenter {
         finalResult = failedResult
 
         if shouldWaitForResults {
-            view?.showResult(failedResult)
+            await view?.showResult(failedResult)
         } else {
             // Notify delegate of the error
-            notifyDelegateError(error)
+            await notifyDelegateError(error)
         }
     }
 }
@@ -107,8 +124,7 @@ extension ResultPresenter: ResultInteractorToPresenter {
 // MARK: - Private Methods
 
 private extension ResultPresenter {
-    func notifyDelegate(with result: ValidationResult) {
-        dispatchPrecondition(condition: .onQueue(.main))
+    func notifyDelegate(with result: ValidationResult) async {
         guard !delegateCalled else {
             print("⚠️ ResultPresenter: Delegate already called, skipping")
             return
@@ -116,22 +132,23 @@ private extension ResultPresenter {
         delegateCalled = true
 
         // Small delay to allow dismiss animation to complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard self != nil else { return }
+        try? await timeProvider.sleep(nanoseconds: 100_000_000)
+
+        await MainActor.run {
             ValidationConfig.shared.delegate?(.complete(result))
         }
     }
 
-    func notifyDelegateError(_ error: ValidationError) {
-        dispatchPrecondition(condition: .onQueue(.main))
+    func notifyDelegateError(_ error: TruoraException) async {
         guard !delegateCalled else {
             print("⚠️ ResultPresenter: Delegate already called, skipping")
             return
         }
         delegateCalled = true
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard self != nil else { return }
+        try? await timeProvider.sleep(nanoseconds: 100_000_000)
+
+        await MainActor.run {
             ValidationConfig.shared.delegate?(.failure(error))
         }
     }

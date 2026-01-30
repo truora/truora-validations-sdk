@@ -20,8 +20,13 @@ private struct URLProtocolStubResponse {
 private final class URLProtocolStub: URLProtocol {
     static var stub: URLProtocolStubResponse?
 
-    override static func canInit(with _: URLRequest) -> Bool { true }
-    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with _: URLRequest) -> Bool {
+        true
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
 
     override func startLoading() {
         guard let stub = Self.stub else {
@@ -47,7 +52,7 @@ private final class URLProtocolStub: URLProtocol {
 
 // MARK: - Async Tests
 
-final class LogoDownloaderAsyncTests: XCTestCase {
+@MainActor final class LogoDownloaderAsyncTests: XCTestCase {
     override func tearDown() {
         URLProtocolStub.stub = nil
         super.tearDown()
@@ -59,14 +64,14 @@ final class LogoDownloaderAsyncTests: XCTestCase {
         return URLSession(configuration: config)
     }
 
-    func testDownloadLogoSuccessReturnsData() {
-        let url = URL(string: "https://example.com/logo.png")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoSuccessReturnsData() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo.png"))
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/png"]
-        )!
+        ))
         // Valid PNG magic bytes
         let expected = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         URLProtocolStub.stub = .init(data: expected, response: response, error: nil)
@@ -87,8 +92,8 @@ final class LogoDownloaderAsyncTests: XCTestCase {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoRejectsNonHttps() {
-        let url = URL(string: "http://example.com/logo.png")!
+    func testDownloadLogoRejectsNonHttps() throws {
+        let url = try XCTUnwrap(URL(string: "http://example.com/logo.png"))
         let sut = LogoDownloader(session: makeSession())
         let exp = expectation(description: "download completes")
 
@@ -106,14 +111,14 @@ final class LogoDownloaderAsyncTests: XCTestCase {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoRejectsNonImageContentType() {
-        let url = URL(string: "https://example.com/logo")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoRejectsNonImageContentType() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo"))
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "text/html"]
-        )!
+        ))
         URLProtocolStub.stub = .init(data: Data([0x00]), response: response, error: nil)
 
         let sut = LogoDownloader(session: makeSession())
@@ -136,15 +141,15 @@ final class LogoDownloaderAsyncTests: XCTestCase {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoRejectsOversizedBody() {
-        let url = URL(string: "https://example.com/logo.png")!
+    func testDownloadLogoRejectsOversizedBody() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo.png"))
         let tooBig = Data(count: 5 * 1024 * 1024 + 1)
-        let response = HTTPURLResponse(
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/png"]
-        )!
+        ))
         URLProtocolStub.stub = .init(data: tooBig, response: response, error: nil)
 
         let sut = LogoDownloader(session: makeSession())
@@ -170,7 +175,7 @@ final class LogoDownloaderAsyncTests: XCTestCase {
 
 // MARK: - Sync Tests
 
-final class LogoDownloaderSyncTests: XCTestCase {
+@MainActor final class LogoDownloaderSyncTests: XCTestCase {
     override func tearDown() {
         URLProtocolStub.stub = nil
         super.tearDown()
@@ -182,10 +187,10 @@ final class LogoDownloaderSyncTests: XCTestCase {
         return URLSession(configuration: config)
     }
 
-    func testDownloadLogoSync_success() {
+    func testDownloadLogoSync_success() throws {
         // Valid JPEG magic bytes
         let testData = Data([0xFF, 0xD8, 0xFF, 0xE0])
-        let testUrl = URL(string: "https://example.com/logo.png")!
+        let testUrl = try XCTUnwrap(URL(string: "https://example.com/logo.png"))
         let response = HTTPURLResponse(
             url: testUrl,
             statusCode: 200,
@@ -208,12 +213,12 @@ final class LogoDownloaderSyncTests: XCTestCase {
         }
     }
 
-    func testDownloadLogoSync_insecureUrl() {
+    func testDownloadLogoSync_insecureUrl() throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [URLProtocolStub.self]
         let sut = LogoDownloader(session: URLSession(configuration: config))
 
-        let result = sut.downloadLogoSync(from: URL(string: "http://example.com/logo.png")!)
+        let result = try sut.downloadLogoSync(from: XCTUnwrap(URL(string: "http://example.com/logo.png")))
 
         switch result {
         case .success:
@@ -223,8 +228,8 @@ final class LogoDownloaderSyncTests: XCTestCase {
         }
     }
 
-    func testDownloadLogoSync_httpError() {
-        let testUrl = URL(string: "https://example.com/logo.png")!
+    func testDownloadLogoSync_httpError() throws {
+        let testUrl = try XCTUnwrap(URL(string: "https://example.com/logo.png"))
         URLProtocolStub.stub = URLProtocolStubResponse(
             data: nil,
             response: HTTPURLResponse(url: testUrl, statusCode: 404, httpVersion: nil, headerFields: nil),
@@ -245,8 +250,8 @@ final class LogoDownloaderSyncTests: XCTestCase {
         }
     }
 
-    func testDownloadLogoSync_invalidContentType() {
-        let testUrl = URL(string: "https://example.com/logo.png")!
+    func testDownloadLogoSync_invalidContentType() throws {
+        let testUrl = try XCTUnwrap(URL(string: "https://example.com/logo.png"))
         URLProtocolStub.stub = URLProtocolStubResponse(
             data: Data([0x42]),
             response: HTTPURLResponse(
@@ -272,8 +277,8 @@ final class LogoDownloaderSyncTests: XCTestCase {
         }
     }
 
-    func testDownloadLogoSync_emptyData() {
-        let testUrl = URL(string: "https://example.com/logo.png")!
+    func testDownloadLogoSync_emptyData() throws {
+        let testUrl = try XCTUnwrap(URL(string: "https://example.com/logo.png"))
         let response = HTTPURLResponse(
             url: testUrl,
             statusCode: 200,
@@ -300,16 +305,16 @@ final class LogoDownloaderSyncTests: XCTestCase {
 // MARK: - Async Tests (Additional)
 
 extension LogoDownloaderAsyncTests {
-    func testDownloadLogoRejectsMissingContentType() {
-        let url = URL(string: "https://example.com/logo.png")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoRejectsMissingContentType() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo")) // No extension
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
-            headerFields: nil
-        )!
-        // Valid PNG data but no Content-Type
-        let data = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+            headerFields: [:] // Explicitly empty headers
+        ))
+        // Garbage data
+        let data = Data([0x00, 0x01, 0x02, 0x03])
         URLProtocolStub.stub = .init(data: data, response: response, error: nil)
 
         let sut = LogoDownloader(session: makeSession())
@@ -332,14 +337,14 @@ extension LogoDownloaderAsyncTests {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoRejectsInvalidImageData() {
-        let url = URL(string: "https://example.com/logo.png")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoRejectsInvalidImageData() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo.png"))
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/png"]
-        )!
+        ))
         // Invalid magic bytes
         let data = Data([0x00, 0x01, 0x02, 0x03])
         URLProtocolStub.stub = .init(data: data, response: response, error: nil)
@@ -360,14 +365,14 @@ extension LogoDownloaderAsyncTests {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoAcceptsPNG() {
-        let url = URL(string: "https://example.com/logo.png")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoAcceptsPNG() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo.png"))
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/png"]
-        )!
+        ))
         let data = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         URLProtocolStub.stub = .init(data: data, response: response, error: nil)
 
@@ -387,14 +392,14 @@ extension LogoDownloaderAsyncTests {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoAcceptsJPEG() {
-        let url = URL(string: "https://example.com/logo.jpg")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoAcceptsJPEG() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo.jpg"))
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/jpeg"]
-        )!
+        ))
         let data = Data([0xFF, 0xD8, 0xFF, 0xE0])
         URLProtocolStub.stub = .init(data: data, response: response, error: nil)
 
@@ -414,14 +419,14 @@ extension LogoDownloaderAsyncTests {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoAcceptsGIF() {
-        let url = URL(string: "https://example.com/logo.gif")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoAcceptsGIF() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo.gif"))
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/gif"]
-        )!
+        ))
         let data = Data([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
         URLProtocolStub.stub = .init(data: data, response: response, error: nil)
 
@@ -441,14 +446,14 @@ extension LogoDownloaderAsyncTests {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoAcceptsWebP() {
-        let url = URL(string: "https://example.com/logo.webp")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoAcceptsWebP() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo.webp"))
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/webp"]
-        )!
+        ))
         let data = Data([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])
         URLProtocolStub.stub = .init(data: data, response: response, error: nil)
 
@@ -468,14 +473,14 @@ extension LogoDownloaderAsyncTests {
         wait(for: [exp], timeout: 1.0)
     }
 
-    func testDownloadLogoAcceptsSVG() {
-        let url = URL(string: "https://example.com/logo.svg")!
-        let response = HTTPURLResponse(
+    func testDownloadLogoAcceptsSVG() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/logo.svg"))
+        let response = try XCTUnwrap(HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/svg+xml"]
-        )!
+        ))
         let svgData = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".utf8)
         URLProtocolStub.stub = .init(data: svgData, response: response, error: nil)
 

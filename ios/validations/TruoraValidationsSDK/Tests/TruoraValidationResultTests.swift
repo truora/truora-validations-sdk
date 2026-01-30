@@ -8,7 +8,7 @@
 import XCTest
 @testable import TruoraValidationsSDK
 
-final class TruoraValidationResultTests: XCTestCase {
+@MainActor final class TruoraValidationResultTests: XCTestCase {
     // MARK: - Initialization Tests
 
     func testCompleteCase() {
@@ -32,7 +32,7 @@ final class TruoraValidationResultTests: XCTestCase {
 
     func testFailureCase() {
         // Given
-        let error = ValidationError.invalidConfiguration("Test error")
+        let error = TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "Test error"))
 
         // When
         let result: TruoraValidationResult<ValidationResult> = .failure(error)
@@ -87,7 +87,9 @@ final class TruoraValidationResultTests: XCTestCase {
 
     func testCompletionValueForNonComplete() {
         // Given
-        let result: TruoraValidationResult<ValidationResult> = .failure(.cancelled)
+        let result: TruoraValidationResult<ValidationResult> = .failure(
+            .sdk(SDKError(type: .processCancelledByUser))
+        )
 
         // When
         let value = result.completionValue
@@ -98,7 +100,7 @@ final class TruoraValidationResultTests: XCTestCase {
 
     func testErrorForFailure() {
         // Given
-        let error = ValidationError.networkError("Network failed")
+        let error = TruoraException.network(message: "Network failed", underlyingError: nil)
         let result: TruoraValidationResult<ValidationResult> = .failure(error)
 
         // When
@@ -106,7 +108,7 @@ final class TruoraValidationResultTests: XCTestCase {
 
         // Then
         XCTAssertNotNil(extractedError, "Should have error")
-        if case .networkError(let message) = extractedError {
+        if case .network(let message, _) = extractedError {
             XCTAssertEqual(message, "Network failed", "Should match error message")
         } else {
             XCTFail("Should be network error")
@@ -148,7 +150,9 @@ final class TruoraValidationResultTests: XCTestCase {
 
     func testCapturedMediaForNonCapture() {
         // Given
-        let result: TruoraValidationResult<ValidationResult> = .failure(.cancelled)
+        let result: TruoraValidationResult<ValidationResult> = .failure(
+            .sdk(SDKError(type: .processCancelledByUser))
+        )
 
         // When
         let media = result.capturedMedia
@@ -172,12 +176,16 @@ final class TruoraValidationResultTests: XCTestCase {
     }
 
     func testEqualityForFailure() {
-        // Given
-        let validation1: TruoraValidationResult<ValidationResult> = .failure(.cancelled)
-        let validation2: TruoraValidationResult<ValidationResult> = .failure(.cancelled)
+        // Given - Create two separate instances with same error content
+        let validation1: TruoraValidationResult<ValidationResult> = .failure(
+            .sdk(SDKError(type: .processCancelledByUser))
+        )
+        let validation2: TruoraValidationResult<ValidationResult> = .failure(
+            .sdk(SDKError(type: .processCancelledByUser))
+        )
 
-        // Then
-        XCTAssertEqual(validation1, validation2, "Should be equal for same error")
+        // Then - Should be equal based on error content, not reference
+        XCTAssertEqual(validation1, validation2, "Should be equal for same error content")
     }
 
     func testEqualityForCapture() {
@@ -197,7 +205,9 @@ final class TruoraValidationResultTests: XCTestCase {
         // Given
         let validationResult = ValidationResult(validationId: "id", status: .success, confidence: 0.9, metadata: nil)
         let complete: TruoraValidationResult<ValidationResult> = .complete(validationResult)
-        let failure: TruoraValidationResult<ValidationResult> = .failure(.cancelled)
+        let failure: TruoraValidationResult<ValidationResult> = .failure(
+            .sdk(SDKError(type: .processCancelledByUser))
+        )
         let media = CapturedMedia(type: .photo, timestamp: Date())
         let capture: TruoraValidationResult<ValidationResult> = .capture(media)
 
@@ -228,7 +238,9 @@ final class TruoraValidationResultTests: XCTestCase {
 
     func testDescriptionForFailure() {
         // Given
-        let result: TruoraValidationResult<ValidationResult> = .failure(.cancelled)
+        let result: TruoraValidationResult<ValidationResult> = .failure(
+            .sdk(SDKError(type: .processCancelledByUser))
+        )
 
         // When
         let description = result.description

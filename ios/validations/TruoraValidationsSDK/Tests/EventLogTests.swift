@@ -8,7 +8,7 @@
 import XCTest
 @testable import TruoraValidationsSDK
 
-final class EventLogTests: XCTestCase {
+@MainActor final class EventLogTests: XCTestCase {
     func testInitialization() {
         let name = "capture_started"
         let currentView = "PassiveCaptureView"
@@ -52,7 +52,7 @@ final class EventLogTests: XCTestCase {
             "date": "2025-11-10T15:30:00Z"
         }
         """
-        let data = json.data(using: .utf8)!
+        let data = try XCTUnwrap(json.data(using: .utf8))
 
         let decoder = JSONDecoder()
         let eventLog = try decoder.decode(EventLog.self, from: data)

@@ -8,7 +8,7 @@
 import XCTest
 @testable import TruoraValidationsSDK
 
-final class TruoraLanguageTests: XCTestCase {
+@MainActor final class TruoraLanguageTests: XCTestCase {
     func testEnglishCase() {
         let language = TruoraLanguage.english
 

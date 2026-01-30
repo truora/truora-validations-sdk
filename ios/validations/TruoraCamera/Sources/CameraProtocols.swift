@@ -10,6 +10,8 @@ import CoreGraphics
 import Foundation
 import Vision
 
+/// Camera delegate protocol for receiving camera events.
+/// All delegate methods are called on the main thread by the camera implementation.
 public protocol CameraDelegate: AnyObject {
     func cameraReady()
     func mediaReady(media: Data)

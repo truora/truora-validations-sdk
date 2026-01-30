@@ -8,7 +8,7 @@
 import XCTest
 @testable import TruoraValidationsSDK
 
-class PassiveCaptureInteractorTests: XCTestCase {
+@MainActor class PassiveCaptureInteractorTests: XCTestCase {
     var interactor: PassiveCaptureInteractor!
     fileprivate var mockPresenter: MockPassiveCapturePresenter!
 
@@ -32,24 +32,28 @@ class PassiveCaptureInteractorTests: XCTestCase {
 
     // MARK: - Upload Video Tests
 
-    func testUploadVideoWithEmptyData() {
+    func testUploadVideoWithEmptyData() async throws {
         // Given
         let videoData = Data()
+        mockPresenter.videoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         // When
         interactor.uploadVideo(videoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.videoUploadFailedExpectation)], timeout: 1.0)
 
         // Then
         XCTAssertTrue(mockPresenter.uploadFailedCalled)
         XCTAssertTrue(mockPresenter.lastError?.localizedDescription.contains("Video data is empty") ?? false)
     }
 
-    func testUploadVideoWithoutAPIClient() {
+    func testUploadVideoWithoutAPIClient() async throws {
         // Given
         let videoData = Data([0x00, 0x01, 0x02, 0x03])
+        mockPresenter.videoUploadFailedExpectation = expectation(description: "Upload failed called")
 
         // When
         interactor.uploadVideo(videoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.videoUploadFailedExpectation)], timeout: 1.0)
 
         // Then
         XCTAssertTrue(mockPresenter.uploadFailedCalled)
@@ -111,19 +115,21 @@ class PassiveCaptureInteractorTests: XCTestCase {
 
 // MARK: - Mock Presenter
 
-private class MockPassiveCapturePresenter: PassiveCaptureInteractorToPresenter {
+@MainActor private class MockPassiveCapturePresenter: PassiveCaptureInteractorToPresenter {
     var uploadCompletedCalled = false
     var uploadFailedCalled = false
-    var lastError: ValidationError?
+    var lastError: TruoraException?
     var lastValidationId: String?
+    var videoUploadFailedExpectation: XCTestExpectation?
 
     func videoUploadCompleted(validationId: String) {
         uploadCompletedCalled = true
         lastValidationId = validationId
     }
 
-    func videoUploadFailed(_ error: ValidationError) {
+    func videoUploadFailed(_ error: TruoraException) async {
         uploadFailedCalled = true
         lastError = error
+        videoUploadFailedExpectation?.fulfill()
     }
 }

@@ -23,6 +23,7 @@ class DocumentFrameProcessor: FrameProcessor {
     }
 
     private func setupDetector() {
+        // Note: DocumentDetector already dispatches callbacks to main thread
         detector.onIDDetected = { [weak self] detectionResults in
             self?.delegate?.detectionsReceived(detectionResults)
         }
@@ -31,7 +32,6 @@ class DocumentFrameProcessor: FrameProcessor {
             let cameraError = CameraError.frameDetectionError(
                 error.localizedDescription
             )
-
             self?.delegate?.reportError(error: cameraError)
         }
     }

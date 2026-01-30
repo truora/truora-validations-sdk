@@ -8,7 +8,7 @@
 import XCTest
 @testable import TruoraValidationsSDK
 
-final class TruoraErrorTests: XCTestCase {
+@MainActor final class TruoraErrorTests: XCTestCase {
     func testInitialization() {
         let description = "Some cool description"
         let currentValidation = "face-recognition"
@@ -91,7 +91,7 @@ final class TruoraErrorTests: XCTestCase {
             "code": "1234"
         }
         """
-        let data = json.data(using: .utf8)!
+        let data = try XCTUnwrap(json.data(using: .utf8))
 
         let decoder = JSONDecoder()
         let error = try decoder.decode(TruoraError.self, from: data)

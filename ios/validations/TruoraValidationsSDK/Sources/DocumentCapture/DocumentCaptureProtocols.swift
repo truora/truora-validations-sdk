@@ -7,10 +7,11 @@
 
 import Foundation
 import TruoraCamera
-import TruoraShared
 import UIKit
 
-protocol DocumentCapturePresenterToView: AnyObject {
+/// Protocol for updating the document capture view.
+/// Implementations should ensure UI updates are performed on the main thread.
+@MainActor protocol DocumentCapturePresenterToView: AnyObject {
     func setupCamera()
     func takePicture()
     func pauseVideo()
@@ -26,21 +27,28 @@ protocol DocumentCapturePresenterToView: AnyObject {
         frontPhotoData: Data?,
         frontPhotoStatus: CaptureStatus?,
         backPhotoData: Data?,
-        backPhotoStatus: CaptureStatus?
+        backPhotoStatus: CaptureStatus?,
+        clearFrontPhoto: Bool,
+        clearBackPhoto: Bool
     )
 
     func showError(_ message: String)
 }
 
 protocol DocumentCaptureViewToPresenter: AnyObject {
-    func viewDidLoad()
-    func viewWillAppear()
-    func viewWillDisappear()
-    func cameraReady()
+    func viewDidLoad() async
+    func viewWillAppear() async
+    func viewWillDisappear() async
+    func cameraReady() async
 
-    func photoCaptured(photoData: Data)
-    func detectionsReceived(_ results: [DetectionResult])
-    func handleCaptureEvent(_ event: DocumentAutoCaptureEvent)
+    func photoCaptured(photoData: Data) async
+    func detectionsReceived(_ results: [DetectionResult]) async
+    func handleCaptureEvent(_ event: DocumentAutoCaptureEvent) async
+
+    // Native UI actions
+    func manualCaptureTapped() async
+    func cancelTapped() async
+    func retryTapped() async
 }
 
 protocol DocumentCapturePresenterToInteractor: AnyObject {
@@ -56,11 +64,11 @@ protocol DocumentCapturePresenterToInteractor: AnyObject {
 }
 
 protocol DocumentCaptureInteractorToPresenter: AnyObject {
-    func photoUploadCompleted(side: DocumentCaptureSide)
-    func photoUploadFailed(side: DocumentCaptureSide, error: ValidationError)
+    func photoUploadCompleted(side: DocumentCaptureSide) async
+    func photoUploadFailed(side: DocumentCaptureSide, error: TruoraException) async
 
-    func imageEvaluationStarted(side: DocumentCaptureSide, previewData: Data)
-    func imageEvaluationSucceeded(side: DocumentCaptureSide, previewData: Data)
-    func imageEvaluationFailed(side: DocumentCaptureSide, previewData: Data, reason: String?)
-    func imageEvaluationErrored(side: DocumentCaptureSide, error: ValidationError)
+    func imageEvaluationStarted(side: DocumentCaptureSide, previewData: Data) async
+    func imageEvaluationSucceeded(side: DocumentCaptureSide, previewData: Data) async
+    func imageEvaluationFailed(side: DocumentCaptureSide, previewData: Data, reason: String?) async
+    func imageEvaluationErrored(side: DocumentCaptureSide, error: TruoraException) async
 }

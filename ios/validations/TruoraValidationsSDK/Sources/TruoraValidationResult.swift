@@ -2,11 +2,11 @@ import Foundation
 
 /// Represents the result of a validation operation
 /// - complete: Validation completed successfully with a result of type T
-/// - failure: Validation failed with a ValidationError
+/// - failure: Validation failed with a TruoraException
 /// - capture: Media was captured during validation
 public enum TruoraValidationResult<T> {
     case complete(T)
-    case failure(ValidationError)
+    case failure(TruoraException)
     case capture(CapturedMedia)
 }
 
@@ -70,7 +70,7 @@ public extension TruoraValidationResult {
     }
 
     /// Extracts the error if this is a failure
-    var error: ValidationError? {
+    var error: TruoraException? {
         if case .failure(let error) = self { return error }
         return nil
     }

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import TruoraShared
 
 class PassiveCaptureInteractor {
     weak var presenter: PassiveCaptureInteractorToPresenter?
@@ -40,20 +39,43 @@ extension PassiveCaptureInteractor: PassiveCapturePresenterToInteractor {
             return
         }
 
-        guard videoData.count > 0 else {
+        #if DEBUG
+        // Bypass upload in offline mode (DEBUG only)
+        if TruoraValidationsSDK.isOfflineMode {
+            print("🟢 PassiveCaptureInteractor: Offline mode, mocking successful upload")
+            Task {
+                await self.presenter?.videoUploadCompleted(validationId: self.validationId)
+            }
+            return
+        }
+        #endif
+
+        guard !videoData.isEmpty else {
             print("❌ PassiveCaptureInteractor: Video data is empty")
-            presenter.videoUploadFailed(.uploadFailed("Video data is empty"))
+            Task {
+                await presenter.videoUploadFailed(
+                    .sdk(SDKError(type: .uploadFailed, details: "Video data is empty"))
+                )
+            }
             return
         }
 
         guard let apiClient = ValidationConfig.shared.apiClient else {
             print("❌ PassiveCaptureInteractor: API client not configured")
-            presenter.videoUploadFailed(.invalidConfiguration("API client not configured"))
+            Task {
+                await presenter.videoUploadFailed(
+                    .sdk(SDKError(type: .invalidConfiguration, details: "API client not configured"))
+                )
+            }
             return
         }
 
         guard let uploadUrl else {
-            presenter.videoUploadFailed(.uploadFailed("No upload URL provided"))
+            Task {
+                await presenter.videoUploadFailed(
+                    .sdk(SDKError(type: .uploadFailed, details: "No upload URL provided"))
+                )
+            }
             return
         }
 
@@ -68,19 +90,16 @@ extension PassiveCaptureInteractor: PassiveCapturePresenterToInteractor {
 
     private func performVideoUploadTask(
         videoData: Data,
-        apiClient: TruoraValidations,
+        apiClient: TruoraAPIClient,
         uploadUrl: String
     ) async {
         do {
             print("🟢 PassiveCaptureInteractor: Upload URL obtained, uploading video...")
 
-            // Convert video data to KotlinByteArray
-            let kotlinBytes = convertDataToKotlinByteArray(videoData)
-
             // Upload video to presigned URL
-            _ = try await apiClient.validations.uploadFile(
+            try await apiClient.uploadFile(
                 uploadUrl: uploadUrl,
-                fileData: kotlinBytes,
+                fileData: videoData,
                 contentType: "video/mp4"
             )
 
@@ -92,27 +111,14 @@ extension PassiveCaptureInteractor: PassiveCapturePresenterToInteractor {
             print("🟢 PassiveCaptureInteractor: Video uploaded successfully")
 
             // Navigate to result view immediately - polling will happen there
-            await MainActor.run {
-                self.presenter?.videoUploadCompleted(validationId: self.validationId)
-            }
+            await presenter?.videoUploadCompleted(validationId: validationId)
         } catch is CancellationError {
             print("⚠️ PassiveCaptureInteractor: Task was cancelled")
         } catch {
             print("❌ PassiveCaptureInteractor: Upload failed: \(error)")
-            await MainActor.run {
-                self.presenter?.videoUploadFailed(.uploadFailed(error.localizedDescription))
-            }
-        }
-    }
-
-    private func convertDataToKotlinByteArray(_ data: Data) -> KotlinByteArray {
-        data.withUnsafeBytes { (bufferPointer: UnsafeRawBufferPointer) -> KotlinByteArray in
-            let byteArray = KotlinByteArray(size: Int32(data.count))
-            for index in 0 ..< data.count {
-                let byte = Int8(bitPattern: bufferPointer[index])
-                byteArray.set(index: Int32(index), value: byte)
-            }
-            return byteArray
+            await presenter?.videoUploadFailed(
+                .sdk(SDKError(type: .uploadFailed, details: error.localizedDescription))
+            )
         }
     }
 }

@@ -7,19 +7,17 @@
 
 import Combine
 import Foundation
-import TruoraShared
 
 // MARK: - Validation Configuration
 
 final class ValidationConfig: ObservableObject {
     static let shared = ValidationConfig()
 
-    private(set) var apiClient: TruoraValidations?
+    private(set) var apiClient: TruoraAPIClient?
     private(set) var delegate: ((TruoraValidationResult<ValidationResult>) -> Void)?
     private(set) var accountId: String?
     private(set) var enrollmentData: EnrollmentData?
     private(set) var uiConfig: UIConfig
-    @Published private(set) var composeConfig: TruoraUIConfig
     private(set) var faceConfig: Face
     private(set) var documentConfig: Document
     private let logoDownloader: LogoDownloading
@@ -28,7 +26,6 @@ final class ValidationConfig: ObservableObject {
     private init(logoDownloader: LogoDownloading = LogoDownloader()) {
         self.logoDownloader = logoDownloader
         self.uiConfig = UIConfig()
-        self.composeConfig = uiConfig.toTruoraConfig()
         self.faceConfig = Face()
         self.documentConfig = Document()
     }
@@ -38,70 +35,68 @@ final class ValidationConfig: ObservableObject {
         logoDownloadTask = nil
     }
 
+    /// Creates a ValidationConfig instance for testing with a custom logo downloader.
+    /// - Parameter logoDownloader: A mock or fake LogoDownloading implementation
+    /// - Returns: A new ValidationConfig instance (not the shared singleton)
     static func makeForTesting(logoDownloader: LogoDownloading) -> ValidationConfig {
         ValidationConfig(logoDownloader: logoDownloader)
     }
 
+    /// Configures the SDK.
+    /// - Parameters:
+    ///   - apiKey: API key for authentication.
+    ///   - accountId: Optional account ID.
+    ///   - enrollmentData: Optional enrollment data.
+    ///   - delegate: Optional delegate for callbacks.
+    ///   - baseUrl: Optional base URL.
+    ///   - uiConfig: Optional UI configuration.
     func configure(
         apiKey: String,
-        accountId: String,
-        delegate: ((TruoraValidationResult<ValidationResult>) -> Void)? = nil,
-        baseUrl: String? = nil,
-        uiConfig: UIConfig? = nil
-    ) async throws {
-        let dummyEnrollmentData = EnrollmentData(
-            enrollmentId: "",
-            accountId: accountId,
-            uploadUrl: nil,
-            createdAt: Date()
-        )
-        try await configure(
-            apiKey: apiKey,
-            enrollmentData: dummyEnrollmentData,
-            delegate: delegate,
-            baseUrl: baseUrl,
-            uiConfig: uiConfig
-        )
-    }
-
-    func configure(
-        apiKey: String,
-        enrollmentData: EnrollmentData,
+        accountId: String? = nil,
+        enrollmentData: EnrollmentData? = nil,
         delegate: ((TruoraValidationResult<ValidationResult>) -> Void)? = nil,
         baseUrl: String? = nil,
         uiConfig: UIConfig? = nil
     ) async throws {
         // Input validation
         guard !apiKey.isEmpty else {
-            throw ValidationError.invalidConfiguration("API key cannot be empty")
+            throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "API key cannot be empty"))
         }
 
-        guard !enrollmentData.accountId.isEmpty else {
-            throw ValidationError.invalidConfiguration("Account ID cannot be empty")
+        let finalAccountId: String
+        let finalData: EnrollmentData
+
+        if let data = enrollmentData {
+            finalData = data
+            finalAccountId = data.accountId
+        } else if let accId = accountId {
+            finalAccountId = accId
+            finalData = EnrollmentData(
+                enrollmentId: "",
+                accountId: accId,
+                uploadUrl: nil,
+                createdAt: Date()
+            )
+        } else {
+            throw TruoraException.sdk(
+                SDKError(
+                    type: .invalidConfiguration,
+                    details: "Either accountId or enrollmentData must be provided"
+                )
+            )
         }
 
-        if let baseUrl {
-            guard !baseUrl.isEmpty else {
-                throw ValidationError.invalidConfiguration("Base URL cannot be empty")
-            }
-            guard URL(string: baseUrl) != nil else {
-                throw ValidationError.invalidConfiguration("Base URL is not a valid URL")
-            }
+        guard !finalAccountId.isEmpty else {
+            throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "Account ID cannot be empty"))
         }
 
-        accountId = enrollmentData.accountId
-        self.enrollmentData = enrollmentData
+        self.accountId = finalAccountId
+        self.enrollmentData = finalData
         self.delegate = delegate
         self.uiConfig = uiConfig ?? UIConfig()
         await downloadLogoIfNeeded()
-        self.composeConfig = self.uiConfig.toTruoraConfig()
 
-        // Use TruoraValidations constructor directly
-        if let baseUrl {
-            apiClient = TruoraValidations(apiKey: apiKey, baseUrl: baseUrl)
-        } else {
-            apiClient = TruoraValidations(apiKey: apiKey, baseUrl: "https://api.validations.truora.com/v1")
-        }
+        apiClient = TruoraAPIClient(apiKey: apiKey)
     }
 
     func setValidation(_ type: ValidationType) {
@@ -120,7 +115,6 @@ final class ValidationConfig: ObservableObject {
     func reset() {
         logoDownloadTask?.cancel()
         logoDownloadTask = nil
-        apiClient?.close()
         apiClient = nil
         delegate = nil
         accountId = nil
@@ -128,12 +122,17 @@ final class ValidationConfig: ObservableObject {
         // Note: Swift ARC automatically handles cleanup of old UIConfig/Face/Document instances
         // and their nested objects (e.g., ReferenceFace's temp file cleanup via deinit)
         uiConfig = UIConfig()
-        composeConfig = uiConfig.toTruoraConfig()
         faceConfig = Face()
         documentConfig = Document()
     }
 
     private func downloadLogoIfNeeded() async {
+        #if DEBUG
+        if TruoraValidationsSDK.isOfflineMode {
+            print("⚠️ ValidationConfig: Skipping logo download in offline mode")
+            return
+        }
+        #endif
         guard uiConfig.customLogoData == nil else { return }
         guard let logoUrlString = uiConfig.logoUrl, let url = URL(string: logoUrlString) else { return }
 
@@ -141,20 +140,13 @@ final class ValidationConfig: ObservableObject {
         let height = uiConfig.logoHeight
 
         logoDownloadTask = Task {
-            let result = await withCheckedContinuation { continuation in
-                logoDownloader.downloadLogo(from: url) { result in
-                    continuation.resume(returning: result)
-                }
-            }
-
-            guard !Task.isCancelled else { return }
-
-            switch result {
-            case .success(let data):
+            do {
+                let data = try await logoDownloader.downloadLogo(from: url)
+                guard !Task.isCancelled else { return }
                 _ = uiConfig.setCustomLogo(data, width: width, height: height)
-            case .failure:
-                // Optional: Silent fallback to default logo
-                break
+            } catch {
+                // Silent fallback to default logo
+                print("⚠️ ValidationConfig: Logo download failed: \(error.localizedDescription)")
             }
         }
 

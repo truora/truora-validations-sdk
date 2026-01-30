@@ -8,7 +8,7 @@
 import XCTest
 @testable import TruoraValidationsSDK
 
-final class ImageTests: XCTestCase {
+@MainActor final class ImageTests: XCTestCase {
     func testFromURL_shouldCreateImageWithURL() {
         let url = "https://example.com/image.jpg"
 

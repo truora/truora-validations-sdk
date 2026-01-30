@@ -10,14 +10,16 @@ import Foundation
 // MARK: - View to Presenter
 
 protocol PassiveIntroViewToPresenter: AnyObject {
-    func viewDidLoad()
-    func startTapped()
-    func cancelTapped()
+    func viewDidLoad() async
+    func startTapped() async
+    func cancelTapped() async
 }
 
 // MARK: - Presenter to View
 
-protocol PassiveIntroPresenterToView: AnyObject {
+/// Protocol for updating the passive intro view.
+/// Implementations should ensure UI updates are performed on the main thread.
+@MainActor protocol PassiveIntroPresenterToView: AnyObject {
     func showLoading()
     func hideLoading()
     func showError(_ message: String)
@@ -33,6 +35,6 @@ protocol PassiveIntroPresenterToInteractor: AnyObject {
 // MARK: - Interactor to Presenter
 
 protocol PassiveIntroInteractorToPresenter: AnyObject {
-    func validationCreated(response: ValidationCreateResponse)
-    func validationFailed(_ error: ValidationError)
+    func validationCreated(response: NativeValidationCreateResponse) async
+    func validationFailed(_ error: TruoraException) async
 }

@@ -11,9 +11,11 @@ import UIKit
 // MARK: - UIImage Extensions
 
 extension UIImage {
-    func getCompressedImage() -> UIImage? {
-        let maxSize: CGFloat = 1024
-
+    /// Compresses the image to fit within a maximum size while maintaining aspect ratio.
+    /// Uses UIGraphicsImageRenderer (iOS 10+) for better performance and memory efficiency.
+    /// - Parameter maxSize: The maximum dimension (width or height) for the output image. Defaults to 1024.
+    /// - Returns: A compressed image, or nil if the source image has invalid dimensions.
+    func getCompressedImage(maxSize: CGFloat = CameraConstants.maxImageSize) -> UIImage? {
         var actualHeight = size.height
         var actualWidth = size.width
 
@@ -42,14 +44,13 @@ extension UIImage {
             }
         }
 
-        let rect = CGRect(x: 0.0, y: 0.0, width: actualWidth, height: actualHeight)
-        UIGraphicsBeginImageContextWithOptions(rect.size, false, 1.0)
-        defer { UIGraphicsEndImageContext() }
+        let targetSize = CGSize(width: actualWidth, height: actualHeight)
 
-        draw(in: rect)
-        let img = UIGraphicsGetImageFromCurrentImageContext()
-
-        return img
+        // Use UIGraphicsImageRenderer (iOS 10+) - more efficient than deprecated UIGraphicsBeginImageContext
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        return renderer.image { _ in
+            draw(in: CGRect(origin: .zero, size: targetSize))
+        }
     }
 }
 

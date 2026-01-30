@@ -7,10 +7,11 @@
 
 import Foundation
 import TruoraCamera
-import TruoraShared
 import UIKit
 
-protocol PassiveCapturePresenterToView: AnyObject {
+/// Protocol for updating the passive capture view.
+/// Implementations should ensure UI updates are performed on the main thread.
+@MainActor protocol PassiveCapturePresenterToView: AnyObject {
     func setupCamera()
     func startRecording()
     func stopRecording()
@@ -18,10 +19,10 @@ protocol PassiveCapturePresenterToView: AnyObject {
     func pauseCamera()
     func pauseVideo()
     func resumeVideo()
-    func updateComposeUI(
+    func updateUI(
         state: PassiveCaptureState,
         feedback: FeedbackType,
-        countdown: Int32,
+        countdown: Int,
         showHelpDialog: Bool,
         showSettingsPrompt: Bool,
         lastFrameData: Data?,
@@ -31,15 +32,15 @@ protocol PassiveCapturePresenterToView: AnyObject {
 }
 
 protocol PassiveCaptureViewToPresenter: AnyObject {
-    func viewDidLoad()
-    func viewWillAppear()
-    func viewWillDisappear()
-    func cameraReady()
-    func cameraPermissionDenied()
-    func videoRecordingCompleted(videoData: Data)
-    func lastFrameCaptured(frameData: Data)
-    func detectionsReceived(_ results: [DetectionResult])
-    func handleCaptureEvent(_ event: PassiveCaptureEvent)
+    func viewDidLoad() async
+    func viewWillAppear() async
+    func viewWillDisappear() async
+    func cameraReady() async
+    func cameraPermissionDenied() async
+    func videoRecordingCompleted(videoData: Data) async
+    func lastFrameCaptured(frameData: Data) async
+    func detectionsReceived(_ results: [DetectionResult]) async
+    func handleCaptureEvent(_ event: PassiveCaptureEvent) async
 }
 
 protocol PassiveCapturePresenterToInteractor: AnyObject {
@@ -48,6 +49,6 @@ protocol PassiveCapturePresenterToInteractor: AnyObject {
 }
 
 protocol PassiveCaptureInteractorToPresenter: AnyObject {
-    func videoUploadCompleted(validationId: String)
-    func videoUploadFailed(_ error: ValidationError)
+    func videoUploadCompleted(validationId: String) async
+    func videoUploadFailed(_ error: TruoraException) async
 }

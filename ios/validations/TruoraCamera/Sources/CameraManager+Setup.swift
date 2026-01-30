@@ -10,6 +10,18 @@ import UIKit
 
 extension CameraManager {
     func setupCamera(view: UIView, cameraOutputMode: CameraOutputMode) {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--uitesting") {
+            print("🧪 CameraManager: UI Testing mode detected. Skipping real camera setup.")
+            cameraIsSetup = true
+            // Simulate camera ready delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.delegate?.cameraReady()
+            }
+            return
+        }
+        #endif
+
         guard !cameraIsSetup else {
             print("⚠️ CameraManager: setupCamera called when camera is already setup")
             return
@@ -24,22 +36,25 @@ extension CameraManager {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             print("✅ CameraManager: Camera permission granted")
+            configureSession(view: view, cameraOutputMode: cameraOutputMode)
         case .notDetermined:
             print("⚠️ CameraManager: Camera permission not determined")
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
                     if granted {
-                        self?.setupCamera(view: view, cameraOutputMode: cameraOutputMode)
+                        self?.configureSession(view: view, cameraOutputMode: cameraOutputMode)
                     } else {
-                        let cameraError = CameraError.internalError("Camera permission denied by user")
+                        let cameraError = CameraError.internalError(
+                            "Camera permission denied by user"
+                        )
                         self?.delegate?.reportError(error: cameraError)
                     }
                 }
             }
-            return
         case .denied, .restricted:
             print("❌ CameraManager: Camera permission denied or restricted")
-            delegate?.reportError(error: .permissionDenied)
+            let status = AVCaptureDevice.authorizationStatus(for: .video)
+            delegate?.reportError(error: .permissionDenied(status: status))
             return
         @unknown default:
             print("❌ CameraManager: Unknown camera permission status")
@@ -47,7 +62,9 @@ extension CameraManager {
             delegate?.reportError(error: cameraError)
             return
         }
+    }
 
+    private func configureSession(view: UIView, cameraOutputMode: CameraOutputMode) {
         captureSession = AVCaptureSession()
         captureSession?.sessionPreset = .hd1280x720
         focusGesture.isEnabled = true
@@ -58,7 +75,9 @@ extension CameraManager {
         captureSession?.commitConfiguration()
 
         guard inputAdded, outputAdded else {
-            print("❌ CameraManager: Failed to setup camera - input: \(inputAdded), output: \(outputAdded)")
+            print(
+                "❌ CameraManager: Failed to setup camera - input: \(inputAdded), output: \(outputAdded)"
+            )
             cameraIsSetup = false // Reset since setup failed
             let cameraError = CameraError.internalError("Failed to configure camera")
             delegate?.reportError(error: cameraError)
@@ -134,13 +153,17 @@ extension CameraManager {
         // This enables document/face detection while in still image capture mode
         let newVideoDataOutput = AVCaptureVideoDataOutput()
         newVideoDataOutput.setSampleBufferDelegate(self, queue: videoDataOutputQueue)
-        newVideoDataOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        newVideoDataOutput.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ]
         newVideoDataOutput.alwaysDiscardsLateVideoFrames = true
 
         videoDataOutput = newVideoDataOutput
 
         guard captureSession.canAddOutput(newVideoDataOutput) else {
-            print("⚠️ CameraManager: Cannot add video data output for frame processing in image mode")
+            print(
+                "⚠️ CameraManager: Cannot add video data output for frame processing in image mode"
+            )
             // Not a critical error - image capture will still work, just without frame processing
             return true
         }
@@ -174,13 +197,17 @@ extension CameraManager {
         // Configure HEVC if available (iOS 13+ support)
         if let connection = newVideoOutput.connection(with: .video),
            newVideoOutput.availableVideoCodecTypes.contains(.hevc) {
-            newVideoOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
+            newVideoOutput.setOutputSettings(
+                [AVVideoCodecKey: AVVideoCodecType.hevc], for: connection
+            )
             print("✅ CameraManager: HEVC codec configured for video recording")
         }
 
         let newVideoDataOutput = AVCaptureVideoDataOutput()
         newVideoDataOutput.setSampleBufferDelegate(self, queue: videoDataOutputQueue)
-        newVideoDataOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        newVideoDataOutput.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ]
         newVideoDataOutput.alwaysDiscardsLateVideoFrames = true
 
         videoDataOutput = newVideoDataOutput
@@ -238,20 +265,7 @@ extension CameraManager {
     }
 
     func calculateVisibleCameraFrame(for view: UIView) -> CGRect {
-        let bounds = view.bounds
-        let safeAreaInsets = view.safeAreaInsets
-
-        let availableHeight = bounds.height
-            - safeAreaInsets.top
-            - safeAreaInsets.bottom
-            - bottomInsetPoints
-
-        return CGRect(
-            x: safeAreaInsets.left,
-            y: safeAreaInsets.top,
-            width: bounds.width - safeAreaInsets.left - safeAreaInsets.right,
-            height: availableHeight
-        )
+        view.bounds
     }
 
     func updatePreviewLayerFrame(for view: UIView) {

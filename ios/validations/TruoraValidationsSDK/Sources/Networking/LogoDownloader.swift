@@ -7,9 +7,25 @@
 
 import Foundation
 
+/// Protocol for downloading logo images.
+/// Provides both async/await and completion handler patterns for iOS 13+ compatibility.
 protocol LogoDownloading {
+    /// Downloads a logo from the given URL using async/await.
+    /// - Parameter url: The HTTPS URL to download from
+    /// - Returns: The downloaded image data
+    /// - Throws: LogoDownloaderError if download fails
+    func downloadLogo(from url: URL) async throws -> Data
+
+    /// Downloads a logo from the given URL using a completion handler.
+    /// - Parameters:
+    ///   - url: The HTTPS URL to download from
+    ///   - completion: Callback with the result
+    /// - Returns: The URLSessionDataTask for cancellation support
     @discardableResult
     func downloadLogo(from url: URL, completion: @escaping (Result<Data, Error>) -> Void) -> URLSessionDataTask?
+
+    /// Synchronously downloads a logo. Deprecated - use async version instead.
+    @available(*, deprecated, message: "Use async downloadLogo(from:) instead")
     func downloadLogoSync(from url: URL) -> Result<Data, Error>
 }
 
@@ -53,6 +69,23 @@ final class LogoDownloader: LogoDownloading {
     init(session: URLSession = .shared) {
         self.session = session
     }
+
+    // MARK: - Async/Await API (Preferred)
+
+    /// Downloads a logo using async/await (iOS 13+ via concurrency backport).
+    /// - Parameter url: The HTTPS URL to download from
+    /// - Returns: The downloaded image data
+    /// - Throws: LogoDownloaderError if download fails
+    func downloadLogo(from url: URL) async throws -> Data {
+        guard url.scheme?.lowercased() == "https" else {
+            throw LogoDownloaderError.insecureUrl
+        }
+
+        let (data, response) = try await session.data(from: url)
+        return try validateResponse(data: data, response: response, error: nil).get()
+    }
+
+    // MARK: - Completion Handler API (Legacy)
 
     private func isValidImageData(_ data: Data) -> Bool {
         guard data.count >= 4 else { return false }

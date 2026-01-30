@@ -6,10 +6,9 @@
 //
 
 import XCTest
-
 @testable import TruoraValidationsSDK
 
-class PassiveIntroInteractorTests: XCTestCase {
+@MainActor class PassiveIntroInteractorTests: XCTestCase {
     var interactor: PassiveIntroInteractor!
     fileprivate var mockPresenter: MockPassiveIntroPresenter!
 
@@ -29,12 +28,15 @@ class PassiveIntroInteractorTests: XCTestCase {
 
     // MARK: - Create Validation Tests
 
-    func testCreateValidationWithoutAPIClient() {
+    func testCreateValidationWithoutAPIClient() async {
         // Given
         let accountId = "test-account-id"
 
         // When
         interactor.createValidation(accountId: accountId)
+
+        // Wait for the async task to complete
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
 
         // Then
         XCTAssertTrue(mockPresenter.validationFailedCalled)
@@ -59,9 +61,7 @@ class PassiveIntroInteractorTests: XCTestCase {
         interactor.createValidation(accountId: accountId)
 
         // Then
-        // Note: This will make a real API call in the current implementation
-        // For proper unit testing, the API client should be mockable
-        // This test verifies that the method can be called without crashing
+        // Note: This verifies that the method can be called without crashing
         XCTAssertNotNil(ValidationConfig.shared.apiClient)
     }
 
@@ -144,7 +144,7 @@ class PassiveIntroInteractorTests: XCTestCase {
     func testEnrollmentCompleted_throwsErrorWhenTaskFails() async {
         // Given
         let mockTask: Task<Void, Error> = Task {
-            throw ValidationError.apiError("Test error")
+            throw TruoraException.network(message: "Test error")
         }
 
         interactor = PassiveIntroInteractor(presenter: mockPresenter, enrollmentTask: mockTask)
@@ -178,18 +178,18 @@ class PassiveIntroInteractorTests: XCTestCase {
 
 // MARK: - Mock Presenter
 
-private class MockPassiveIntroPresenter: PassiveIntroInteractorToPresenter {
+@MainActor private class MockPassiveIntroPresenter: PassiveIntroInteractorToPresenter {
     var validationCreatedCalled = false
     var validationFailedCalled = false
-    var lastResponse: ValidationCreateResponse?
-    var lastError: ValidationError?
+    var lastResponse: NativeValidationCreateResponse?
+    var lastError: TruoraException?
 
-    func validationCreated(response: ValidationCreateResponse) {
+    func validationCreated(response: NativeValidationCreateResponse) {
         validationCreatedCalled = true
         lastResponse = response
     }
 
-    func validationFailed(_ error: ValidationError) {
+    func validationFailed(_ error: TruoraException) async {
         validationFailedCalled = true
         lastError = error
     }

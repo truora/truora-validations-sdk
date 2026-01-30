@@ -6,15 +6,14 @@
 //
 
 import XCTest
-
 @testable import TruoraValidationsSDK
 
-final class ReferenceFaceTests: XCTestCase {
+@MainActor final class ReferenceFaceTests: XCTestCase {
     // MARK: - URL Tests
 
-    func testFromWithURL() {
+    func testFromWithURL() throws {
         // Given
-        let url = URL(string: "https://example.com/face.jpg")!
+        let url = try XCTUnwrap(URL(string: "https://example.com/face.jpg"))
 
         // When
         let referenceFace = ReferenceFace.from(url)
@@ -71,23 +70,23 @@ final class ReferenceFaceTests: XCTestCase {
 
     // MARK: - Data Tests
 
-    func testFromWithData() {
+    func testFromWithData() throws {
         // Given
         let data = Data([0x00, 0x01, 0x02, 0x03])
 
         // When
-        let referenceFace = ReferenceFace.from(data)
+        let referenceFace = try ReferenceFace.from(data)
 
         // Then
         XCTAssertNotNil(referenceFace, "Should create ReferenceFace from Data")
     }
 
-    func testFromWithEmptyData() {
+    func testFromWithEmptyData() throws {
         // Given
         let emptyData = Data()
 
         // When
-        let referenceFace = ReferenceFace.from(emptyData)
+        let referenceFace = try ReferenceFace.from(emptyData)
 
         // Then
         XCTAssertNotNil(referenceFace, "Should create ReferenceFace from empty Data")
@@ -127,39 +126,38 @@ final class ReferenceFaceTests: XCTestCase {
 
         // When/Then
         XCTAssertThrowsError(try ReferenceFace.from(emptyString)) { error in
-            guard let refError = error as? ReferenceFaceError else {
-                XCTFail("Expected ReferenceFaceError")
+            guard case TruoraException.sdk(let sdkError) = error else {
+                XCTFail("Expected TruoraException.sdk, got \(error)")
                 return
             }
 
-            if case .invalidArgument(let message) = refError {
-                XCTAssertTrue(message.contains("empty"), "Error should mention empty string")
-            } else {
-                XCTFail("Expected invalidArgument error")
-            }
+            XCTAssertEqual(sdkError.type, .nullParameter, "Error should be nullParameter type")
+            XCTAssertNotNil(sdkError.details, "Error should have details")
+            XCTAssertTrue(
+                sdkError.details?.lowercased().contains("empty") == true,
+                "Error details should mention empty string"
+            )
         }
     }
 
     func testFromWithWhitespaceStringThrows() {
-        // Given
+        // Given - whitespace-only strings are trimmed and treated as empty
         let whitespaceString = "   "
 
         // When/Then
         XCTAssertThrowsError(try ReferenceFace.from(whitespaceString)) { error in
-            guard let refError = error as? ReferenceFaceError else {
-                XCTFail("Expected ReferenceFaceError")
+            guard case TruoraException.sdk(let sdkError) = error else {
+                XCTFail("Expected TruoraException.sdk, got \(error)")
                 return
             }
 
-            if case .invalidArgument = refError {
-                // Success
-            } else {
-                XCTFail("Expected invalidArgument error")
-            }
+            // Whitespace strings are trimmed then validated, so they become empty
+            XCTAssertEqual(sdkError.type, .nullParameter, "Error should be nullParameter type")
+            XCTAssertNotNil(sdkError.details, "Error should have details")
         }
     }
 
-    func testFromWithInvalidURLString() {
+    func testFromWithInvalidURLString() throws {
         // Given - A string that looks like a malformed URL
         let invalidURL = "htp://invalid url with spaces"
 
@@ -168,7 +166,7 @@ final class ReferenceFaceTests: XCTestCase {
 
         // Then
         XCTAssertNotNil(referenceFace, "Should create ReferenceFace treating malformed URL as file path")
-        XCTAssertTrue(referenceFace!.url.isFileURL, "Should treat malformed URL as file path")
+        XCTAssertTrue(try XCTUnwrap(referenceFace?.url.isFileURL), "Should treat malformed URL as file path")
     }
 
     // MARK: - URL Property Tests
@@ -197,12 +195,12 @@ final class ReferenceFaceTests: XCTestCase {
         XCTAssertTrue(referenceFace.url.path.contains(filePath), "Should contain file path")
     }
 
-    func testURLPropertyWithData() {
+    func testURLPropertyWithData() throws {
         // Given
         let data = Data([0x00, 0x01, 0x02, 0x03])
 
         // When
-        let referenceFace = ReferenceFace.from(data)
+        let referenceFace = try ReferenceFace.from(data)
 
         // Then
         XCTAssertTrue(referenceFace.url.isFileURL, "Data should be stored as temp file URL")
@@ -230,13 +228,13 @@ final class ReferenceFaceTests: XCTestCase {
 
     // MARK: - Temporary File Cleanup Tests
 
-    func testTemporaryFileCleanupOnDealloc() {
+    func testTemporaryFileCleanupOnDealloc() throws {
         // Given
         var tempURL: URL?
 
-        autoreleasepool {
+        try autoreleasepool {
             let data = Data([0x00, 0x01, 0x02, 0x03])
-            let referenceFace = ReferenceFace.from(data)
+            let referenceFace = try ReferenceFace.from(data)
             tempURL = referenceFace.url
 
             XCTAssertTrue(
@@ -247,7 +245,7 @@ final class ReferenceFaceTests: XCTestCase {
 
         // Then - After autoreleasepool, ReferenceFace should be deallocated
         XCTAssertFalse(
-            FileManager.default.fileExists(atPath: tempURL!.path),
+            try FileManager.default.fileExists(atPath: XCTUnwrap(tempURL?.path)),
             "Temp file should be cleaned up after ReferenceFace is deallocated"
         )
     }

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import TruoraShared
 import UIKit
 
 final class DocumentCaptureInteractor {
@@ -26,11 +25,6 @@ final class DocumentCaptureInteractor {
         self.presenter = presenter
         self.uploadFileHandler = uploadFileHandler
     }
-
-    deinit {
-        uploadTask?.cancel()
-        evaluationTask?.cancel()
-    }
 }
 
 extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
@@ -44,27 +38,38 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
             return
         }
 
-        guard photoData.count > 0 else {
-            presenter.photoUploadFailed(side: side, error: .uploadFailed("Photo data is empty"))
+        guard !photoData.isEmpty else {
+            Task {
+                await presenter.photoUploadFailed(
+                    side: side,
+                    error: .sdk(SDKError(type: .uploadFailed, details: "Photo data is empty"))
+                )
+            }
             return
         }
 
         guard let apiClient = ValidationConfig.shared.apiClient else {
-            presenter.photoUploadFailed(
-                side: side,
-                error: .invalidConfiguration("API client not configured")
-            )
+            Task {
+                await presenter.photoUploadFailed(
+                    side: side,
+                    error: .sdk(SDKError(type: .invalidConfiguration, details: "API client not configured"))
+                )
+            }
             return
         }
 
         let uploadUrl: String? = switch side {
         case .front: frontUploadUrl
         case .back: reverseUploadUrl
-        default: nil
         }
 
         guard let uploadUrl, !uploadUrl.isEmpty else {
-            presenter.photoUploadFailed(side: side, error: .uploadFailed("No upload URL provided"))
+            Task {
+                await presenter.photoUploadFailed(
+                    side: side,
+                    error: .sdk(SDKError(type: .uploadFailed, details: "No upload URL provided"))
+                )
+            }
             return
         }
 
@@ -83,39 +88,26 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
         }
 
         guard !photoData.isEmpty else {
-            presenter.imageEvaluationErrored(
-                side: side,
-                error: .apiError("Photo data is empty")
-            )
+            Task {
+                await presenter.imageEvaluationErrored(
+                    side: side,
+                    error: .sdk(SDKError(type: .uploadFailed, details: "Photo data is empty"))
+                )
+            }
             return
         }
-
-        // Re-enable image evaluation once API permissions are granted: https://truora.atlassian.net/browse/AL-269
-        if let countryEnum = TruoraCountry.companion.fromId(id: country.uppercased()),
-           let docTypeEnum = TruoraDocumentType.companion.fromValue(value: documentType) {
-            presenter.imageEvaluationSucceeded(side: side, previewData: photoData)
-            return
-        }
-
-        // if let countryEnum = TruoraCountry.companion.fromId(id: country.uppercased()),
-        //    let docTypeEnum = TruoraDocumentType.companion.fromValue(value: documentType),
-        //    TruoraSelectionMapper.shared.shouldSkipImageEvaluation(
-        //        country: countryEnum,
-        //        documentType: docTypeEnum
-        //    ) {
-        //     presenter.imageEvaluationSucceeded(side: side, previewData: photoData)
-        //     return
-        // }
 
         guard let apiClient = ValidationConfig.shared.apiClient else {
-            presenter.imageEvaluationErrored(
-                side: side,
-                error: .invalidConfiguration("API client not configured")
-            )
+            Task {
+                await presenter.imageEvaluationErrored(
+                    side: side,
+                    error: .sdk(SDKError(type: .invalidConfiguration, details: "API client not configured"))
+                )
+            }
             return
         }
 
-        presenter.imageEvaluationStarted(side: side, previewData: photoData)
+        Task { await presenter.imageEvaluationStarted(side: side, previewData: photoData) }
 
         performImageEvaluation(
             side: side,
@@ -131,18 +123,17 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
         uploadUrl: String,
         photoData: Data,
         side: DocumentCaptureSide,
-        apiClient: TruoraValidations
+        apiClient: TruoraAPIClient
     ) {
         uploadTask?.cancel()
-        uploadTask = Task {
+        uploadTask = Task { [weak self] in
             do {
-                if let uploadFileHandler {
+                if let uploadFileHandler = self?.uploadFileHandler {
                     try await uploadFileHandler(uploadUrl, photoData)
                 } else {
-                    let kotlinBytes = convertDataToKotlinByteArray(photoData)
-                    _ = try await apiClient.validations.uploadFile(
+                    try await apiClient.uploadFile(
                         uploadUrl: uploadUrl,
-                        fileData: kotlinBytes,
+                        fileData: photoData,
                         contentType: "image/png"
                     )
                 }
@@ -151,30 +142,15 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
                     return
                 }
 
-                await MainActor.run {
-                    self.presenter?.photoUploadCompleted(side: side)
-                }
+                await self?.presenter?.photoUploadCompleted(side: side)
             } catch is CancellationError {
                 // No-op
             } catch {
-                await MainActor.run {
-                    self.presenter?.photoUploadFailed(
-                        side: side,
-                        error: .uploadFailed(error.localizedDescription)
-                    )
-                }
+                await self?.presenter?.photoUploadFailed(
+                    side: side,
+                    error: .sdk(SDKError(type: .uploadFailed, details: error.localizedDescription))
+                )
             }
-        }
-    }
-
-    private func convertDataToKotlinByteArray(_ data: Data) -> KotlinByteArray {
-        data.withUnsafeBytes { (bufferPointer: UnsafeRawBufferPointer) -> KotlinByteArray in
-            let byteArray = KotlinByteArray(size: Int32(data.count))
-            for index in 0 ..< data.count {
-                let byte = Int8(bitPattern: bufferPointer[index])
-                byteArray.set(index: Int32(index), value: byte)
-            }
-            return byteArray
         }
     }
 }
@@ -186,27 +162,27 @@ private extension DocumentCaptureInteractor {
         country: String,
         documentType: String,
         validationId: String
-    ) throws -> ImageEvaluationRequest {
+    ) throws -> NativeImageEvaluationRequest {
         guard let image = UIImage(data: photoData) else {
-            throw ValidationError.apiError("Unable to decode image data")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Unable to decode image data"))
         }
 
         let scaled = scaleImage(image, maxDimension: 1024)
 
         guard let jpegData = scaled.jpegData(compressionQuality: 0.7) else {
-            throw ValidationError.apiError("Unable to encode image as JPEG")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Unable to encode image as JPEG"))
         }
 
-        let base64 = jpegData.base64EncodedString()
+        let base64Image = jpegData.base64EncodedString()
         let documentSide = mapSideToAPI(side)
 
-        return ImageEvaluationRequest(
-            image: base64,
+        return NativeImageEvaluationRequest(
+            image: base64Image,
             country: country.uppercased(),
-            document_type: documentType,
-            document_side: documentSide,
-            validation_id: validationId,
-            evaluation_type: "document"
+            documentType: documentType,
+            documentSide: documentSide,
+            validationId: validationId,
+            evaluationType: "document"
         )
     }
 
@@ -216,8 +192,6 @@ private extension DocumentCaptureInteractor {
             "front"
         case .back:
             "reverse"
-        default:
-            "front"
         }
     }
 
@@ -255,10 +229,10 @@ private extension DocumentCaptureInteractor {
         country: String,
         documentType: String,
         validationId: String,
-        apiClient: TruoraValidations
+        apiClient: TruoraAPIClient
     ) {
         evaluationTask?.cancel()
-        evaluationTask = Task.detached { [weak self] in
+        evaluationTask = Task { [weak self] in
             guard let self else { return }
 
             do {
@@ -270,41 +244,58 @@ private extension DocumentCaptureInteractor {
                     validationId: validationId
                 )
 
-                let response = try await apiClient.imageEvaluation.evaluateImage(request: request)
-                let parsed = try await SwiftKTORHelper.parseResponse(
-                    response,
-                    as: ImageEvaluationResponse.self
-                )
+                let response = try await apiClient.evaluateImage(request: request)
 
                 guard !Task.isCancelled else {
                     return
                 }
 
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-
-                    if parsed.status.lowercased() == "success" {
-                        self.presenter?.imageEvaluationSucceeded(side: side, previewData: photoData)
-                    } else {
-                        self.presenter?.imageEvaluationFailed(
-                            side: side,
-                            previewData: photoData,
-                            reason: parsed.feedback?.reason
-                        )
-                    }
+                // Check if status is explicitly success
+                let isSuccess = response.status == "success"
+                if isSuccess {
+                    await self.presenter?.imageEvaluationSucceeded(side: side, previewData: photoData)
+                } else {
+                    await self.presenter?.imageEvaluationFailed(
+                        side: side,
+                        previewData: photoData,
+                        reason: response.feedback?.reason
+                    )
                 }
             } catch is CancellationError {
                 // No-op
-            } catch {
+            } catch let truoraError as TruoraException {
+                // Preserve TruoraException errors thrown from evaluation logic
                 guard !Task.isCancelled else {
                     return
                 }
-                await MainActor.run { [weak self] in
-                    self?.presenter?.imageEvaluationErrored(
-                        side: side,
-                        error: .apiError(error.localizedDescription)
-                    )
+                await self.presenter?.imageEvaluationErrored(side: side, error: truoraError)
+            } catch let apiError as TruoraAPIError {
+                // Wrap API errors - use network case to preserve error info for retry logic
+                guard !Task.isCancelled else {
+                    return
                 }
+                let errorMessage = apiError.errorDescription ?? "Image evaluation API error: \(apiError)"
+                await self.presenter?.imageEvaluationErrored(
+                    side: side,
+                    error: .network(
+                        message: errorMessage,
+                        underlyingError: apiError
+                    )
+                )
+            } catch {
+                // Wrap other errors (e.g., Swift runtime errors)
+                guard !Task.isCancelled else {
+                    return
+                }
+                await self.presenter?.imageEvaluationErrored(
+                    side: side,
+                    error: .sdk(
+                        SDKError(
+                            type: .internalError,
+                            details: "Image evaluation failed: \(error.localizedDescription)"
+                        )
+                    )
+                )
             }
         }
     }

@@ -10,13 +10,15 @@ import Foundation
 // MARK: - View -> Presenter
 
 protocol ResultViewToPresenter: AnyObject {
-    func viewDidLoad()
-    func doneTapped()
+    func viewDidLoad() async
+    func doneTapped() async
 }
 
 // MARK: - Presenter -> View
 
-protocol ResultPresenterToView: AnyObject {
+/// Protocol for updating the result view.
+/// Implementations should ensure UI updates are performed on the main thread.
+@MainActor protocol ResultPresenterToView: AnyObject {
     func showLoading()
     func showResult(_ result: ValidationResult)
     func showCompleted()
@@ -26,6 +28,7 @@ protocol ResultPresenterToView: AnyObject {
 // MARK: - Presenter -> Interactor
 
 protocol ResultPresenterToInteractor: AnyObject {
+    var validationId: String { get }
     func startPolling()
     func cancelPolling()
 }
@@ -33,6 +36,6 @@ protocol ResultPresenterToInteractor: AnyObject {
 // MARK: - Interactor -> Presenter
 
 protocol ResultInteractorToPresenter: AnyObject {
-    func pollingCompleted(result: ValidationResult)
-    func pollingFailed(error: ValidationError)
+    func pollingCompleted(result: ValidationResult) async
+    func pollingFailed(error: TruoraException) async
 }

@@ -7,7 +7,6 @@
 
 import Foundation
 import ObjectiveC
-import TruoraShared
 import UIKit
 
 // MARK: - Associated Object Key for Router Storage
@@ -16,10 +15,9 @@ private var routerAssociatedKey: UInt8 = 0
 
 // MARK: - Validation Router
 
-class ValidationRouter {
+@MainActor class ValidationRouter {
     weak var navigationController: UINavigationController?
 
-    var enrollmentData: EnrollmentData?
     private var validationId: String?
     var uploadUrl: String?
     var frontUploadUrl: String?
@@ -37,35 +35,9 @@ class ValidationRouter {
 
     // MARK: - Navigation Methods
 
-    func navigateToUploadBaseImage(enrollmentData: EnrollmentData) throws {
-        guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
-        }
-        self.enrollmentData = enrollmentData
-        let uploadViewController = try UploadBaseImageConfigurator.buildModule(
-            router: self,
-            enrollmentData: enrollmentData
-        )
-        navController.pushViewController(uploadViewController, animated: true)
-    }
-
-    func navigateToEnrollmentStatus() throws {
-        guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
-        }
-        guard let enrollmentData else {
-            throw ValidationError.internalError("Missing enrollment data")
-        }
-        let statusViewController = try EnrollmentStatusConfigurator.buildModule(
-            router: self,
-            enrollmentData: enrollmentData
-        )
-        navController.pushViewController(statusViewController, animated: true)
-    }
-
     func navigateToPassiveIntro() throws {
         guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
         }
         let passiveIntroViewController = try PassiveIntroConfigurator.buildModule(
             router: self
@@ -75,15 +47,15 @@ class ValidationRouter {
 
     func navigateToPassiveCapture(validationId: String, uploadUrl: String?) throws {
         guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
         }
 
         if let uploadUrl {
             guard !uploadUrl.isEmpty else {
-                throw ValidationError.invalidConfiguration("Upload URL cannot be empty")
+                throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "Upload URL cannot be empty"))
             }
-            guard URL(string: uploadUrl) != nil else {
-                throw ValidationError.invalidConfiguration("Upload URL is not valid")
+            guard let url = URL(string: uploadUrl), url.scheme != nil else {
+                throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "Upload URL is not valid"))
             }
         }
         self.validationId = validationId
@@ -95,9 +67,9 @@ class ValidationRouter {
         navController.pushViewController(passiveCaptureViewController, animated: true)
     }
 
-    func navigateToResult(validationId: String, loadingType: LoadingType = .face) throws {
+    func navigateToResult(validationId: String, loadingType: ResultLoadingType = .face) throws {
         guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
         }
         let resultViewController = try ResultConfigurator.buildModule(
             router: self,
@@ -109,7 +81,7 @@ class ValidationRouter {
 
     func navigateToDocumentIntro() throws {
         guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
         }
         let documentIntroViewController = try DocumentIntroConfigurator.buildModule(
             router: self
@@ -119,7 +91,7 @@ class ValidationRouter {
 
     func navigateToDocumentSelection() throws {
         guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
         }
 
         let documentSelectionViewController = try DocumentSelectionConfigurator.buildModule(
@@ -134,16 +106,18 @@ class ValidationRouter {
         reverseUploadUrl: String?
     ) throws {
         guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
         }
 
-        guard !frontUploadUrl.isEmpty, URL(string: frontUploadUrl) != nil else {
-            throw ValidationError.invalidConfiguration("Front upload URL is not valid")
+        guard !frontUploadUrl.isEmpty, let url = URL(string: frontUploadUrl), url.scheme != nil else {
+            throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "Front upload URL is not valid"))
         }
 
         if let reverseUploadUrl {
-            guard !reverseUploadUrl.isEmpty, URL(string: reverseUploadUrl) != nil else {
-                throw ValidationError.invalidConfiguration("Reverse upload URL is not valid")
+            guard !reverseUploadUrl.isEmpty, let url = URL(string: reverseUploadUrl), url.scheme != nil else {
+                throw TruoraException.sdk(
+                    SDKError(type: .invalidConfiguration, details: "Reverse upload URL is not valid")
+                )
             }
         }
 
@@ -166,7 +140,7 @@ class ValidationRouter {
         retriesLeft: Int
     ) throws {
         guard let navController = navigationController else {
-            throw ValidationError.internalError("Navigation controller is nil")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
         }
         let feedbackViewController = DocumentFeedbackConfigurator.buildModule(
             router: self,
@@ -209,7 +183,7 @@ class ValidationRouter {
         navigationController?.dismiss(animated: true)
     }
 
-    func handleError(_ error: ValidationError) {
+    func handleError(_ error: TruoraException) {
         ValidationConfig.shared.delegate?(.failure(error))
         dismissFlow()
     }
@@ -235,7 +209,9 @@ class ValidationRouter {
         )
         alert.addAction(
             UIAlertAction(title: "OK", style: .default) { [weak self] _ in
-                ValidationConfig.shared.delegate?(.failure(.cancelled))
+                ValidationConfig.shared.delegate?(
+                    .failure(.sdk(SDKError(type: .processCancelledByUser)))
+                )
 
                 self?.dismissFlow()
             }
@@ -247,41 +223,6 @@ class ValidationRouter {
 // MARK: - Factory Methods
 
 extension ValidationRouter {
-    @MainActor
-    static func createRootNavigationController() throws -> UINavigationController {
-        let navController = UINavigationController()
-        let router = ValidationRouter(navigationController: navController)
-
-        // Store router as associated object to prevent deallocation
-        objc_setAssociatedObject(
-            navController,
-            &routerAssociatedKey,
-            router,
-            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        )
-
-        guard let enrollmentData = ValidationConfig.shared.enrollmentData else {
-            throw ValidationError.internalError("Enrollment data not configured")
-        }
-
-        // Conditionally start the flow
-        let initialViewController: UIViewController =
-            if enrollmentData.enrollmentId.isEmpty {
-                // Skipped enrollment, go to passive intro
-                try PassiveIntroConfigurator.buildModule(router: router)
-            } else {
-                // New enrollment, go to upload base image or enrollment status
-                try UploadBaseImageConfigurator.buildModule(
-                    router: router,
-                    enrollmentData: enrollmentData
-                )
-            }
-        navController.viewControllers = [initialViewController]
-        navController.navigationBar.isHidden = false
-
-        return navController
-    }
-
     @MainActor
     static func createRootNavigationController(of type: ValidationType) throws -> UINavigationController {
         let navController = UINavigationController()
@@ -296,9 +237,9 @@ extension ValidationRouter {
         )
 
         guard ValidationConfig.shared.enrollmentData != nil else {
-            throw ValidationError.internalError("Enrollment data not configured")
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Enrollment data not configured"))
         }
-        let viewController: UIViewController =
+        let viewController =
             switch type {
             case .face:
                 try getPassiveIntroViewController(router: router)
@@ -335,7 +276,7 @@ extension ValidationRouter {
         return navController
     }
 
-    // Helper to retrieve router from navigation controller
+    /// Helper to retrieve router from navigation controller
     static func getRouter(from navigationController: UINavigationController) -> ValidationRouter? {
         objc_getAssociatedObject(navigationController, &routerAssociatedKey) as? ValidationRouter
     }
@@ -346,11 +287,21 @@ extension ValidationRouter {
         from presentingViewController: UIViewController
     ) throws {
         guard presentingViewController.viewIfLoaded?.window != nil else {
-            throw ValidationError.internalError("Cannot present: view is not in window hierarchy")
+            throw TruoraException.sdk(
+                SDKError(type: .internalError, details: "Cannot present: view is not in window hierarchy")
+            )
         }
 
         guard presentingViewController.presentedViewController == nil else {
-            throw ValidationError.internalError("Cannot present: presenter is already presenting")
+            throw TruoraException.sdk(
+                SDKError(
+                    type: .internalError,
+                    details: """
+                    Cannot present: view controller is already presenting another view. \
+                    Dismiss the existing presented view controller before starting a new validation flow.
+                    """
+                )
+            )
         }
 
         presentingViewController.present(navController, animated: true)
@@ -359,7 +310,7 @@ extension ValidationRouter {
 
 // MARK: - Passive Intro View Controller
 
-private func getPassiveIntroViewController(router: ValidationRouter) throws -> UIViewController {
+@MainActor private func getPassiveIntroViewController(router: ValidationRouter) throws -> UIViewController {
     let enrollmentTask = startReferenceFaceEnrollment()
     router.setEnrollmentTask(enrollmentTask)
 
@@ -368,7 +319,7 @@ private func getPassiveIntroViewController(router: ValidationRouter) throws -> U
 
 // MARK: - Document Selection View Controller
 
-private func getDocumentSelectionViewController(
+@MainActor private func getDocumentSelectionViewController(
     router: ValidationRouter
 ) throws -> UIViewController {
     try DocumentSelectionConfigurator.buildModule(router: router)
@@ -377,6 +328,13 @@ private func getDocumentSelectionViewController(
 // MARK: - Reference Face Enrollment
 
 private func startReferenceFaceEnrollment() -> Task<Void, Error>? {
+    #if DEBUG
+    if TruoraValidationsSDK.isOfflineMode {
+        print("⚠️ ValidationRouter: Offline mode, skipping reference face enrollment")
+        return nil
+    }
+    #endif
+
     guard let accountId = ValidationConfig.shared.accountId, !accountId.isEmpty else {
         print("⚠️ ValidationRouter: No account id configured, skipping enrollment")
         return nil
@@ -404,35 +362,28 @@ private func startReferenceFaceEnrollment() -> Task<Void, Error>? {
 private func performEnrollment(
     accountId: String,
     referenceFace: ReferenceFace,
-    apiClient: TruoraShared.TruoraValidations
+    apiClient: TruoraAPIClient
 ) async throws {
-    let request = TruoraShared.EnrollmentRequest(
-        type: "face-recognition",
-        user_authorized: true,
-        account_id: accountId,
+    let request = NativeEnrollmentRequest(
+        type: NativeValidationTypeEnum.faceRecognition.rawValue,
+        userAuthorized: true,
+        accountId: accountId,
         confirmation: nil
     )
 
     print("🟢 ValidationRouter: Creating enrollment for account: \(accountId)")
 
-    let enrollmentResponse = try await apiClient.enrollments.createEnrollment(
-        formData: request.toFormData()
-    )
+    let enrollment = try await apiClient.createEnrollment(request: request)
 
     guard !Task.isCancelled else {
         print("⚠️ ValidationRouter: Enrollment task was cancelled")
         throw CancellationError()
     }
 
-    let enrollment = try await SwiftKTORHelper.parseResponse(
-        enrollmentResponse,
-        as: EnrollmentResponse.self
-    )
-
     print("🟢 ValidationRouter: Enrollment created - ID: \(enrollment.enrollmentId)")
 
     guard let uploadUrl = enrollment.fileUploadLink else {
-        throw ValidationError.apiError("No file upload link in enrollment response")
+        throw TruoraException.network(message: "No file upload link in enrollment response", underlyingError: nil)
     }
 
     try await uploadReferenceFaceFile(
@@ -445,19 +396,21 @@ private func performEnrollment(
 private func uploadReferenceFaceFile(
     uploadUrl: String,
     referenceFace: ReferenceFace,
-    apiClient: TruoraShared.TruoraValidations
+    apiClient: TruoraAPIClient
 ) async throws {
     print("🟢 ValidationRouter: Uploading reference face to presigned URL")
 
-    let fileHandle = TruoraShared.PlatformFileHandle(
-        nsUrl: referenceFace.url,
-        httpClient: nil as TruoraShared.Ktor_client_coreHttpClient?
-    )
+    // Read file data from URL
+    let fileData = try Data(contentsOf: referenceFace.url)
 
-    let uploadResponse = try await apiClient.enrollments.uploadReferenceFace(
+    // Determine content type from URL path extension
+    let ext = referenceFace.url.pathExtension.lowercased()
+    let contentType = ext == "png" ? "image/png" : "image/jpeg"
+
+    try await apiClient.uploadFile(
         uploadUrl: uploadUrl,
-        file: fileHandle,
-        contentType: nil
+        fileData: fileData,
+        contentType: contentType
     )
 
     guard !Task.isCancelled else {
@@ -465,9 +418,7 @@ private func uploadReferenceFaceFile(
         return
     }
 
-    print(
-        "🟢 ValidationRouter: Reference face uploaded successfully - Status: \(uploadResponse.status.value)"
-    )
+    print("🟢 ValidationRouter: Reference face uploaded successfully")
 
     await MainActor.run {
         print("✅ ValidationRouter: Reference face enrollment completed")

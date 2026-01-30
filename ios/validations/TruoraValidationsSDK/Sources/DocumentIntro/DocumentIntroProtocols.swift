@@ -10,14 +10,16 @@ import Foundation
 // MARK: - View to Presenter
 
 protocol DocumentIntroViewToPresenter: AnyObject {
-    func viewDidLoad()
-    func startTapped()
-    func cancelTapped()
+    func viewDidLoad() async
+    func startTapped() async
+    func cancelTapped() async
 }
 
 // MARK: - Presenter to View
 
-protocol DocumentIntroPresenterToView: AnyObject {
+/// Protocol for updating the document intro view.
+/// Implementations should ensure UI updates are performed on the main thread.
+@MainActor protocol DocumentIntroPresenterToView: AnyObject {
     func showLoading()
     func hideLoading()
     func showError(_ message: String)
@@ -32,6 +34,6 @@ protocol DocumentIntroPresenterToInteractor: AnyObject {
 // MARK: - Interactor to Presenter
 
 protocol DocumentIntroInteractorToPresenter: AnyObject {
-    func validationCreated(response: ValidationCreateResponse)
-    func validationFailed(_ error: ValidationError)
+    func validationCreated(response: NativeValidationCreateResponse) async
+    func validationFailed(_ error: TruoraException) async
 }

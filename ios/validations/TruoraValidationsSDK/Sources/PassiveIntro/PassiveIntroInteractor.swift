@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import TruoraShared
 
 class PassiveIntroInteractor {
     weak var presenter: PassiveIntroInteractorToPresenter?
@@ -26,80 +25,87 @@ class PassiveIntroInteractor {
 
 extension PassiveIntroInteractor: PassiveIntroPresenterToInteractor {
     func createValidation(accountId: String) {
+        // Use the native API Client from ValidationConfig
         guard let apiClient = ValidationConfig.shared.apiClient else {
-            presenter?.validationFailed(.apiError("API client not configured"))
+            Task {
+                await presenter?.validationFailed(
+                    .sdk(SDKError(type: .invalidConfiguration, details: "API client not configured"))
+                )
+            }
             return
         }
+
+        #if DEBUG
+        // Offline Mode Mock (DEBUG only)
+        if TruoraValidationsSDK.isOfflineMode {
+            print("🟢 PassiveIntro: Offline mode, mocking validation creation")
+            let instructions = NativeValidationInstructions(
+                fileUploadLink: "https://mock.url/upload",
+                frontUrl: nil,
+                reverseUrl: nil
+            )
+            let response = NativeValidationCreateResponse(
+                validationId: "offline-validation-id",
+                instructions: instructions
+            )
+            Task {
+                await self.presenter?.validationCreated(response: response)
+            }
+            return
+        }
+        #endif
 
         validationTask = Task {
             do {
                 let request = createValidationRequest(accountId: accountId)
                 print("🟢 PassiveIntro: Creating validation for account: \(accountId)")
 
-                let response = try await apiClient.validations.createValidation(
-                    formData: request.toFormData()
-                )
+                // Call native API
+                let response = try await apiClient.createValidation(request: request)
 
                 guard !Task.isCancelled else {
                     print("⚠️ PassiveIntroInteractor: Task was cancelled")
                     return
                 }
 
-                let validationResponse = try await handleValidationResponse(response)
-                await MainActor.run {
-                    self.presenter?.validationCreated(response: validationResponse)
-                }
+                await presenter?.validationCreated(response: response)
             } catch is CancellationError {
                 print("⚠️ PassiveIntroInteractor: Task was cancelled")
             } catch {
-                handleValidationError(error)
+                await handleValidationError(error)
             }
         }
     }
 
-    private func createValidationRequest(accountId: String) -> TruoraShared.ValidationRequest {
+    private func createValidationRequest(accountId: String) -> NativeValidationRequest {
         // Get similarity threshold from configuration
-        let similarityThresholdFromConfig = Double(ValidationConfig.shared.faceConfig.similarityThreshold)
-        let threshold: KotlinDouble? = KotlinDouble(value: similarityThresholdFromConfig)
+        let threshold = Double(ValidationConfig.shared.faceConfig.similarityThreshold)
 
         // Get timeout from configuration (in seconds)
-        let timeoutSecondsFromConfig = ValidationConfig.shared.faceConfig.timeoutSeconds
-        let timeout: KotlinInt? = timeoutSecondsFromConfig > 0
-            ? KotlinInt(value: Int32(timeoutSecondsFromConfig))
-            : nil
+        let timeoutSeconds = ValidationConfig.shared.faceConfig.timeoutSeconds
+        let timeout = timeoutSeconds > 0 ? timeoutSeconds : nil
 
-        return TruoraShared.ValidationRequest(
-            type: ValidationTypes.shared.FACE_RECOGNITION,
+        return NativeValidationRequest(
+            type: NativeValidationTypeEnum.faceRecognition.rawValue,
             country: nil,
-            account_id: accountId,
+            accountId: accountId,
             threshold: threshold,
             subvalidations: [
-                SubValidationTypes.shared.PASSIVE_LIVENESS,
-                SubValidationTypes.shared.SIMILARITY
+                NativeSubValidationTypeEnum.passiveLiveness.rawValue,
+                NativeSubValidationTypeEnum.similarity.rawValue
             ],
-            retry_of_id: nil,
-            allowed_retries: nil,
-            document_type: nil,
+            documentType: nil,
             timeout: timeout
         )
     }
 
-    private func handleValidationResponse(
-        _ response: TruoraShared.Ktor_client_coreHttpResponse
-    ) async throws -> ValidationCreateResponse {
-        let validationResponse = try await SwiftKTORHelper.parseResponse(
-            response,
-            as: ValidationCreateResponse.self
-        )
-        print("🟢 PassiveIntro: Validation created - ID: \(validationResponse.validationId)")
-        return validationResponse
-    }
-
-    private func handleValidationError(_ error: Error) {
+    private func handleValidationError(_ error: Error) async {
         print("❌ PassiveIntro: Validation creation failed: \(error)")
-        Task { @MainActor in
-            self.presenter?.validationFailed(
-                .apiError("Failed to create validation: \(error.localizedDescription)")
+        if let truoraError = error as? TruoraException {
+            await presenter?.validationFailed(truoraError)
+        } else {
+            await presenter?.validationFailed(
+                .network(message: "Failed to create validation: \(error.localizedDescription)")
             )
         }
     }

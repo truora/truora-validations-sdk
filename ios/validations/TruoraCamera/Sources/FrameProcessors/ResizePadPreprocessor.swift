@@ -30,7 +30,7 @@ final class ResizePadPreprocessor {
     let targetSize: CGSize
     let outputDtype: OutputDtype
 
-    // Cached CIContext - lazy to defer creation until first use
+    /// Cached CIContext - lazy to defer creation until first use
     private lazy var ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     enum OutputDtype {
@@ -138,8 +138,10 @@ final class ResizePadPreprocessor {
         context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
-        // Draw scaled image at origin (0,0) - bottom/right will remain black (padding)
-        context.draw(scaledImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+        // Draw scaled image centered in the buffer (matching Android's center padding)
+        let left = (CGFloat(width) - scaledWidth) / 2.0
+        let top = (CGFloat(height) - scaledHeight) / 2.0
+        context.draw(scaledImage, in: CGRect(x: left, y: top, width: scaledWidth, height: scaledHeight))
 
         // Extract RGB data directly from this context (no second context needed)
         guard let contextData = context.data else { return nil }

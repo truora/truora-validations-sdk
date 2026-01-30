@@ -1,0 +1,193 @@
+/* Passive Intro */
+"passive_instructions_title" = "Para verificar tu identidad grabaremos un video corto de tu rostro";
+"passive_instructions_text" = "Pon tu celular frente a tu rostro";
+"passive_instructions_security_tip" = "Tu información está protegida.";
+"passive_instructions_start_verification" = "Comenzar verificación";
+
+/* Passive Capture */
+"passive_capture_start_instruction" = "¡Prepárate!\ngrabaremos tu rostro en";
+"passive_capture_feedback_show_face" = "Muestra tu rostro";
+"passive_capture_feedback_remove_glasses" = "Retira las gafas";
+"passive_capture_feedback_multiple_people" = "Evita aparecer con alguien más";
+"passive_capture_feedback_hidden_face" = "Descubre tu rostro";
+"passive_capture_feedback_recording" = "No te muevas!\nGrabando";
+"passive_capture_record_video" = "grabar video";
+"passive_capture_cannot_record" = "No pudimos grabar.\nPresiona \"%@\".";
+"passive_capture_tips_title" = "Tips para una mejor captura";
+"passive_capture_manual_recording" = "Grabar video de forma manual";
+"passive_capture_help" = "Ayuda";
+"passive_capture_try_again" = "Intentar de nuevo";
+
+/* Tips */
+"passive_capture_tip_1" = "Busca un lugar tranquilo y con buena luz.";
+"passive_capture_tip_2" = "No te muevas ni gires la cabeza mientras grabas.";
+"passive_capture_tip_3" = "Asegúrate de estar sin compañía: solo tú debes aparecer en cámara.";
+"passive_capture_tip_4" = "Evita tener el rostro cubierto por manos, cabello u objetos.";
+
+/* Results */
+"result_button_label" = "Finalizar verificación";
+"success_result_title" = "¡Tu identidad fue verificada con éxito!";
+"success_result_description" = "Verificación realizada el %@";
+"failure_result_title" = "No logramos verificar tu identidad";
+"failure_result_description" = "Tu verificación no fue aprobada";
+"completed_result_title" = "Hemos completado tu verificación";
+"completed_result_description" = "Verificación realizada el %@";
+
+/* Loading */
+"passive_capture_loading_title" = "Verificando rostro...";
+"document_autocapture_loading_verifying" = "Verificando";
+"document_autocapture_loading_verifying_description" = "Estamos revisando la información\nEsto puede tardar unos segundos";
+
+/* Camera Permissions */
+"camera_permission_denied_title" = "Se requiere acceso a la cámara";
+"camera_permission_denied_description" = "Para continuar, por favor permite el acceso a la cámara en la configuración de tu dispositivo.";
+"camera_permission_open_settings" = "Abrir configuración";
+
+/* Common */
+"common_error" = "Error";
+"common_ok" = "Aceptar";
+"common_cancel" = "Cancelar";
+"common_close" = "Cerrar";
+"common_go_to_settings" = "Ir a Configuración";
+
+/* Document Selection */
+"document_selection_title" = "Elige tu tipo de documento";
+"document_selection_country_label" = "País de tu documento:";
+"document_selection_country_placeholder" = "Selecciona un país";
+"document_selection_country_error" = "Por favor selecciona un país";
+"document_selection_document_label" = "Tipo de documento de identidad:";
+"document_selection_document_placeholder" = "Selecciona una opción";
+"document_selection_document_error" = "Por favor selecciona un tipo de documento";
+"document_selection_accepted_documents" = "Documentos aceptados:";
+"document_selection_continue" = "Continuar";
+"document_selection_loading" = "Cargando...";
+
+/* Document Intro */
+"document_intro_title" = "Prepárate para escanear tu documento de identidad";
+"document_intro_subtitle" = "Intenta no moverte, el documento se escaneará automáticamente.";
+"document_intro_security_tip" = "Tu información está protegida.";
+"document_intro_start_capture" = "Escanear documento";
+"document_intro_creating_validation" = "Creando validación...";
+
+/* Document Capture */
+"document_capture_front_side" = "Lado frontal";
+"document_capture_back_side" = "Lado trasero";
+"document_capture_front_label" = "Frente";
+"document_capture_back_label" = "Reverso";
+"document_capture_front_instruction" = "Coloca el frente de tu documento";
+"document_capture_back_instruction" = "Coloca el reverso de tu documento";
+"document_capture_rotate_instruction" = "Voltea tu documento";
+"document_capture_scanning" = "Escaneando...";
+"document_capture_scanning_manual" = "Posiciona tu documento";
+"document_capture_hold" = "Mantén firme";
+"document_capture_capturing" = "Capturando...";
+"document_capture_processing" = "Procesando...";
+"document_capture_success" = "Documento capturado";
+"document_capture_error" = "Error al capturar";
+"document_capture_take_photo" = "Tomar foto";
+"document_capture_manual_button" = "Tomar foto manualmente";
+"document_capture_help_title" = "Tips para una mejor captura";
+"document_capture_help_tip1" = "Coloca el documento sobre una superficie oscura y plana.";
+"document_capture_help_tip2" = "Evita colocar el documento sobre el teclado.";
+"document_capture_help_tip3" = "Ubícate en un lugar bien iluminado.";
+"document_capture_help_tip4" = "Evita luces brillantes o sombras que cubran la información.";
+"document_capture_help_dismiss" = "Entendido";
+"document_capture_feedback_locate" = "Coloca tu documento en el marco";
+"document_capture_feedback_closer" = "Acércate más";
+"document_capture_feedback_further" = "Aléjate un poco";
+"document_capture_feedback_rotate" = "Rota tu documento";
+"document_capture_feedback_center" = "Centra tu documento";
+"document_capture_feedback_multiple" = "Solo se permite un documento";
+
+/* Document Feedback */
+"document_feedback_retry" = "Tomar otra foto";
+"document_feedback_tips" = "Tips para tomar una mejor foto";
+"document_feedback_retries_left" = "Reintentos disponibles %@";
+"document_feedback_retries_left_prefix" = "Reintentos disponibles";
+"document_feedback_blurry_title" = "Imagen borrosa";
+"document_feedback_blurry_description" = "Mantén tu teléfono firme y asegura buena iluminación";
+"document_feedback_glare_title" = "Reflejo detectado";
+"document_feedback_glare_description" = "Evita la luz directa sobre tu documento";
+"document_feedback_too_far_title" = "Documento muy lejos";
+"document_feedback_too_far_description" = "Acércate más al documento";
+"document_feedback_too_close_title" = "Documento muy cerca";
+"document_feedback_too_close_description" = "Aléjate un poco del documento";
+"document_feedback_bad_angle_title" = "Ángulo incorrecto";
+"document_feedback_bad_angle_description" = "Sostén tu teléfono paralelo al documento";
+"document_feedback_no_document_title" = "No se detectó documento";
+"document_feedback_no_document_description" = "Coloca un documento en el marco";
+"document_feedback_face_not_found_title" = "Tu rostro no se ve con claridad";
+"document_feedback_face_not_found_description" = "Puede que haya reflejos que tapen tu rostro o que tu identificación esté muy lejos de la cámara.";
+"document_feedback_wrong_document_title" = "Documento incorrecto";
+"document_feedback_wrong_document_description" = "Por favor usa el tipo de documento seleccionado";
+"document_feedback_expired_title" = "Documento vencido";
+"document_feedback_expired_description" = "Este documento ya no es válido";
+"document_feedback_damaged_title" = "Documento dañado";
+"document_feedback_damaged_description" = "Tu documento parece estar dañado";
+"document_feedback_generic_title" = "Error en la captura";
+"document_feedback_generic_description" = "Por favor intenta de nuevo";
+
+/* Camera Errors */
+"camera_error_initialization_failed" = "Error al iniciar la cámara";
+"camera_error_capture_failed" = "No se pudo tomar la foto";
+"camera_error_view_not_available" = "Vista de cámara no disponible";
+"camera_error_not_ready" = "Cámara no lista";
+
+/* Countries */
+"country_all" = "Todos";
+"country_ar" = "Argentina";
+"country_br" = "Brasil";
+"country_cl" = "Chile";
+"country_co" = "Colombia";
+"country_cr" = "Costa Rica";
+"country_mx" = "México";
+"country_pe" = "Perú";
+"country_sv" = "El Salvador";
+"country_ve" = "Venezuela";
+
+/* Document Types */
+"document_type_national_id" = "Cédula de ciudadanía";
+"document_type_foreign_id" = "Cédula de extranjería";
+"document_type_passport" = "Pasaporte";
+"document_type_driver_license" = "Licencia de conducción";
+"document_type_identity_card" = "Tarjeta de identidad";
+"document_type_rut" = "RUT";
+"document_type_tax_id" = "NIT";
+"document_type_ppt" = "PPT";
+"document_type_ptp" = "PTP";
+
+/* Country Specific Documents */
+"doc_mx_national_id" = "INE/IFE (CURP)";
+"doc_mx_tax_id" = "RFC";
+"doc_mx_foreign_id" = "Residencia permanente/temporal";
+"doc_cl_national_id" = "Cédula de identidad";
+"doc_pe_national_id" = "Documento nacional de identidad";
+"doc_pe_foreign_id" = "Carné de extranjería";
+"doc_pe_tax_id" = "RUC";
+"doc_pe_ptp" = "Permiso temporal de permanencia";
+"doc_ve_national_id" = "Cédula de identidad";
+"doc_ar_national_id" = "Documento nacional de identidad";
+"doc_br_cnh" = "CNH";
+"doc_br_general_reg" = "Registro General";
+"doc_br_national_id" = "Cédula (CPF)";
+"doc_br_tax_id" = "CNPJ";
+"doc_co_national_id" = "Cédula de ciudadanía";
+"doc_co_foreign_id" = "Cédula de extranjería";
+"doc_co_ppt" = "PPT (Permiso por protección temporal)";
+"doc_co_temp_id" = "Contraseña";
+"doc_co_ptp" = "PPT (VEN)";
+"doc_sv_national_id" = "Documento Único de Identidad (DUI)";
+"doc_sv_foreign_id" = "Carnet de residencia";
+
+/* Document Descriptions */
+"desc_original_valid" = "Original y vigente";
+"desc_taxpayer_id" = "ID del contribuyente";
+"desc_mx_passport" = "Mexicano, original y vigente";
+"desc_physical_original" = "Original y en formato físico";
+"desc_co_valid_issued" = "Vigente y expedido en Colombia";
+"desc_co_passport" = "De Colombia, válido y vigente";
+"desc_cl_foreign_id" = "Vigente y expedida en Chile";
+"desc_cl_passport" = "De Chile, válido y vigente";
+"desc_sv_keep_hand" = "Ten tu documento original a la mano";
+"desc_co_tax_id" = "Número de Identificación Tributaria";
+"desc_co_temp_id" = "Cédula de ciudadanía temporal";

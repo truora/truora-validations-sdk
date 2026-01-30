@@ -29,75 +29,71 @@ class PassiveIntroPresenter {
 }
 
 extension PassiveIntroPresenter: PassiveIntroViewToPresenter {
-    func viewDidLoad() {
+    func viewDidLoad() async {
         // Initial setup if needed
     }
 
-    func startTapped() {
+    func startTapped() async {
         guard let accountId = ValidationConfig.shared.accountId else {
-            view?.showError("Missing account ID")
+            await view?.showError("Missing account ID")
             return
         }
 
         guard let interactor else {
-            view?.showError("Interactor not configured")
+            await view?.showError("Interactor not configured")
             return
         }
 
-        view?.showLoading()
+        await view?.showLoading()
 
-        validationTask = Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                try await interactor.enrollmentCompleted()
-                interactor.createValidation(accountId: accountId)
-            } catch is CancellationError {
-                // Task was cancelled - hide loading and exit gracefully
-                print("⚠️ PassiveIntroPresenter: Enrollment was cancelled")
-                await MainActor.run { [weak self] in
-                    self?.view?.hideLoading()
-                }
-            } catch {
-                print("❌ PassiveIntroPresenter: Enrollment failed: \(error)")
-                await MainActor.run { [weak self] in
-                    self?.view?.hideLoading()
-                    self?.router?.handleError(
-                        .apiError("Reference face enrollment failed: \(error.localizedDescription)")
-                    )
-                }
+        do {
+            try await interactor.enrollmentCompleted()
+            interactor.createValidation(accountId: accountId)
+        } catch is CancellationError {
+            // Task was cancelled - hide loading and exit gracefully
+            print("⚠️ PassiveIntroPresenter: Enrollment was cancelled")
+            await view?.hideLoading()
+        } catch {
+            print("❌ PassiveIntroPresenter: Enrollment failed: \(error)")
+            await view?.hideLoading()
+            if let truoraError = error as? TruoraException {
+                await router?.handleError(truoraError)
+            } else {
+                await router?.handleError(
+                    .network(message: "Reference face enrollment failed: \(error.localizedDescription)")
+                )
             }
         }
     }
 
-    func cancelTapped() {
+    func cancelTapped() async {
         validationTask?.cancel()
-        router?.handleCancellation()
+        await router?.handleCancellation()
     }
 }
 
 extension PassiveIntroPresenter: PassiveIntroInteractorToPresenter {
-    func validationCreated(response: ValidationCreateResponse) {
+    func validationCreated(response: NativeValidationCreateResponse) async {
         guard let router else {
-            view?.hideLoading()
-            view?.showError("Router not configured")
+            await view?.hideLoading()
+            await view?.showError("Router not configured")
             return
         }
 
-        view?.hideLoading()
+        await view?.hideLoading()
 
         do {
             let validationId = response.validationId
             let uploadUrl = response.instructions?.fileUploadLink
 
-            try router.navigateToPassiveCapture(validationId: validationId, uploadUrl: uploadUrl)
+            try await router.navigateToPassiveCapture(validationId: validationId, uploadUrl: uploadUrl)
         } catch {
-            view?.showError(error.localizedDescription)
+            await view?.showError(error.localizedDescription)
         }
     }
 
-    func validationFailed(_ error: ValidationError) {
-        view?.hideLoading()
-        router?.handleError(error)
+    func validationFailed(_ error: TruoraException) async {
+        await view?.hideLoading()
+        await router?.handleError(error)
     }
 }

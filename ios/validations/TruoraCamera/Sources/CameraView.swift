@@ -75,11 +75,6 @@ public class CameraView: UIView {
     public func stopVideoRecording(skipMediaNotification: Bool) {
         cameraManager.stopVideoRecording(skipMedia: skipMediaNotification)
     }
-
-    public func setVisibleViewport(bottomInset: CGFloat) {
-        cameraManager.bottomInsetPoints = bottomInset
-        setNeedsLayout()
-    }
 }
 
 extension CameraView: AVCapturePhotoCaptureDelegate {
@@ -94,7 +89,8 @@ extension CameraView: AVCapturePhotoCaptureDelegate {
             // For vertical/portrait orientation, rotate using CIImage
             // Back camera captures in landscape, front camera is mirrored
 
-            let ciOrientation: CGImagePropertyOrientation = cameraManager.cameraSide == .front ? .leftMirrored : .right
+            let ciOrientation: CGImagePropertyOrientation =
+                cameraManager.cameraSide == .front ? .leftMirrored : .right
             let ciImage = CIImage(cgImage: cgImg).oriented(ciOrientation)
             let context = CIContext()
             if let rotatedCGImage = context.createCGImage(ciImage, from: ciImage.extent) {
@@ -116,53 +112,31 @@ extension CameraView: AVCapturePhotoCaptureDelegate {
         }
 
         if let error {
-            let cameraError = CameraError
-                .internalError("Error unable to take picture:  \(error.localizedDescription)")
-            delegate?.reportError(error: cameraError)
+            let cameraError =
+                CameraError
+                    .internalError("Error unable to take picture:  \(error.localizedDescription)")
+            DispatchQueue.main.async { [weak self] in
+                self?.delegate?.reportError(error: cameraError)
+            }
             return
         }
 
-        var (data, image) = getDataAndImageFromOrientation(photo: photo)
-
-        if cameraManager.bottomInsetPoints > 0, let cgImage = image?.cgImage {
-            let totalHeight = bounds.height
-            guard totalHeight > 0 else {
-                delegate?.mediaReady(media: data ?? Data())
-                return
-            }
-
-            let visibleHeight = totalHeight - cameraManager.bottomInsetPoints
-            let heightRatio = visibleHeight / totalHeight
-
-            let croppedHeight = CGFloat(cgImage.height) * heightRatio
-            let cropRect = CGRect(
-                x: 0,
-                y: 0,
-                width: CGFloat(cgImage.width),
-                height: croppedHeight
-            )
-
-            if let croppedCGImage = cgImage.cropping(to: cropRect) {
-                image = UIImage(
-                    cgImage: croppedCGImage,
-                    scale: image?.scale ?? 1,
-                    orientation: image?.imageOrientation ?? .up
-                )
-                data = image?.pngData()
-            } else {
-                print("⚠️ CameraView: Image cropping failed, using uncropped image")
-            }
-        }
+        let (data, image) = getDataAndImageFromOrientation(photo: photo)
 
         guard let imgData = data else { return }
 
         guard
-            let compressedImage = image?.getCompressedImage(), let compressedData = compressedImage.pngData() else {
-            delegate?.mediaReady(media: imgData)
+            let compressedImage = image?.getCompressedImage(),
+            let compressedData = compressedImage.pngData() else {
+            DispatchQueue.main.async { [weak self] in
+                self?.delegate?.mediaReady(media: imgData)
+            }
             return
         }
 
-        delegate?.mediaReady(media: compressedData)
+        DispatchQueue.main.async { [weak self] in
+            self?.delegate?.mediaReady(media: compressedData)
+        }
     }
 }
 
@@ -186,9 +160,12 @@ extension CameraView: AVCaptureFileOutputRecordingDelegate {
                 return
             }
 
-            let cameraError = CameraError
-                .internalError("Error unable to record video:  \(error.localizedDescription)")
-            delegate?.reportError(error: cameraError)
+            let cameraError =
+                CameraError
+                    .internalError("Error unable to record video:  \(error.localizedDescription)")
+            DispatchQueue.main.async { [weak self] in
+                self?.delegate?.reportError(error: cameraError)
+            }
             url.deleteFile()
             return
         }
@@ -200,37 +177,19 @@ extension CameraView: AVCaptureFileOutputRecordingDelegate {
             return
         }
 
-        manager.cropVideo(at: url, viewBounds: bounds) { [weak self] result in
-            defer { url.deleteFile() }
+        defer { url.deleteFile() }
 
-            guard let self else { return }
-
-            switch result {
-            case .success(let croppedURL):
-                do {
-                    let data = try Data(contentsOf: croppedURL)
-                    self.delegate?.mediaReady(media: data)
-
-                    if croppedURL != url {
-                        croppedURL.deleteFile()
-                    }
-                } catch {
-                    let cameraError = CameraError
-                        .internalError("Error unable to read cropped video:  \(error.localizedDescription)")
-                    self.delegate?.reportError(error: cameraError)
-                }
-
-            case .failure(let cropError):
-                print("⚠️ Video crop failed: \(cropError.localizedDescription), using original")
-
-                do {
-                    let data = try Data(contentsOf: url)
-                    self.delegate?.mediaReady(media: data)
-                } catch {
-                    let cameraError = CameraError
-                        .internalError("Error unable to read original video:  \(error.localizedDescription)")
-                    self.delegate?.reportError(error: cameraError)
-                }
+        do {
+            let data = try Data(contentsOf: url)
+            DispatchQueue.main.async { [weak self] in
+                self?.delegate?.mediaReady(media: data)
+            }
+        } catch {
+            let cameraError = CameraError.internalError(
+                "Error reading video: \(error.localizedDescription)"
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.delegate?.reportError(error: cameraError)
             }
         }
     }

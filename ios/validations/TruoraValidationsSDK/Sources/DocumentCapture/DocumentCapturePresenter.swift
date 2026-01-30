@@ -8,7 +8,6 @@
 import AVFoundation
 import Foundation
 import TruoraCamera
-import TruoraShared
 
 /// Camera lifecycle state for document capture
 private enum CameraLifecycleState {
@@ -23,6 +22,17 @@ private struct EvaluationContext {
     let photoData: Data
     let country: String
     let documentType: String
+}
+
+/// Represents a detected document with its confidence scores
+private struct DocumentDetection {
+    let document: DetectionResult
+    let frontScore: Float
+    let backScore: Float
+
+    var isFrontSide: Bool {
+        frontScore >= backScore
+    }
 }
 
 final class DocumentCapturePresenter {
@@ -51,41 +61,68 @@ final class DocumentCapturePresenter {
 
     private var evaluationErrorRetryCount: Int = 0
     private var currentEvaluationContext: EvaluationContext?
+    private var sideNeedingPreviewClear: DocumentCaptureSide?
 
     // MARK: - Autodetection Properties
 
     // MARK: - Read useAutocapture from documentConfig when available
 
-    private let useAutocapture: Bool = true
+    private let useAutocapture: Bool
 
     private var lifecycleState: CameraLifecycleState = .uninitialized
 
-    // Thread-safe timing properties using NSLock for low-overhead synchronization
+    // Thread-safe timing and detection state using NSLock for low-overhead synchronization
+    // All properties below are protected by timingLock to prevent race conditions
     private let timingLock = NSLock()
     private var documentDetectionStartTime: Date?
     private var detectionProcessingStartTime: Date?
+    private let timeProvider: TimeProvider
 
-    static let manualTimeoutSeconds: TimeInterval = 5.0
-    static let requiredDetectionTime: TimeInterval = 1.0
+    private static let manualTimeoutSeconds: TimeInterval = 15.0
+    private static let requiredDetectionTime: TimeInterval = 2.0
+    private static let stabilityThreshold: CGFloat = 0.015
+    private static let maxTotalMovement: CGFloat = 0.08
+    private static let centerDistanceThreshold: CGFloat = 0.2
+    private static let minDocumentWidth: CGFloat = 0.5
+    private static let maxDocumentWidth: CGFloat = 0.9
+
+    // Feedback debounce to prevent flickering when detection rapidly changes
+    // Protected by timingLock for thread safety
+    private static let feedbackDebounceTime: TimeInterval = 0.3
+    private var pendingFeedbackType: DocumentFeedbackType?
+    private var pendingFeedbackStartTime: Date?
+    private var displayedFeedbackType: DocumentFeedbackType = .searching
+
+    // Bounding box tracking for stability detection
+    // Protected by timingLock for thread safety
+    private var initialBoundingBox: CGRect?
+    private var lastBoundingBox: CGRect?
 
     init(
         view: DocumentCapturePresenterToView,
         interactor: DocumentCapturePresenterToInteractor?,
         router: ValidationRouter,
-        validationId: String
+        validationId: String,
+        useAutocapture: Bool = true,
+        timeProvider: TimeProvider = RealTimeProvider()
     ) {
         self.view = view
         self.interactor = interactor
         self.router = router
         self.validationId = validationId
+        self.useAutocapture = useAutocapture
+        self.timeProvider = timeProvider
+        self.currentSide = .front
+        self.feedbackType = useAutocapture ? .searching : .scanningManual
     }
 
-    deinit {
-        cancelManualModeTimer()
-    }
-
-    private func updateUI(frontPhotoDataUpdate: Data? = nil, backPhotoDataUpdate: Data? = nil) {
-        view?.updateComposeUI(
+    private func updateUI(
+        frontPhotoDataUpdate: Data? = nil,
+        backPhotoDataUpdate: Data? = nil,
+        clearFrontPhoto: Bool = false,
+        clearBackPhoto: Bool = false
+    ) async {
+        await view?.updateComposeUI(
             side: currentSide,
             feedbackType: feedbackType,
             showHelpDialog: showHelpDialog,
@@ -94,31 +131,31 @@ final class DocumentCapturePresenter {
             frontPhotoData: frontPhotoDataUpdate,
             frontPhotoStatus: frontPhotoStatus,
             backPhotoData: backPhotoDataUpdate,
-            backPhotoStatus: backPhotoStatus
+            backPhotoStatus: backPhotoStatus,
+            clearFrontPhoto: clearFrontPhoto,
+            clearBackPhoto: clearBackPhoto
         )
     }
 
-    private func transitionToBackSideWithRotation() {
-        cancelManualModeTimer()
+    private func transitionToBackSideWithRotation() async {
         showRotationAnimation = true
-        updateUI()
+        await updateUI()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in
-            guard let self else { return }
-            self.showRotationAnimation = false
-            self.currentSide = .back
-            self.feedbackType = useAutocapture ? .scanning : .scanningManual
-            self.evaluationErrorRetryCount = 0
-            self.currentEvaluationContext = nil
+        try? await timeProvider.sleep(nanoseconds: 1_800_000_000)
 
-            // Reset detection timers for back side
-            self.resetDocumentDetectionTimer()
-            self.startDetectionProcessingTimer()
-            self.lifecycleState = .ready
+        showRotationAnimation = false
+        currentSide = .back
+        feedbackType = useAutocapture ? .scanning : .scanningManual
+        evaluationErrorRetryCount = 0
+        currentEvaluationContext = nil
 
-            self.updateUI()
-            self.view?.setupCamera()
-        }
+        // Reset detection timers for back side
+        resetDocumentDetectionTimer()
+        startDetectionProcessingTimer()
+        lifecycleState = .ready
+
+        await updateUI()
+        await view?.setupCamera()
     }
 
     // MARK: - Timing Helper Methods
@@ -148,6 +185,7 @@ final class DocumentCapturePresenter {
     private func resetDocumentDetectionTimer() {
         timingLock.lock()
         documentDetectionStartTime = nil
+        initialBoundingBox = nil
         timingLock.unlock()
     }
 
@@ -179,70 +217,210 @@ final class DocumentCapturePresenter {
         return elapsed >= Self.requiredDetectionTime
     }
 
+    /// Starts detection timer and sets initial bounding box atomically (thread-safe)
+    /// - Parameter bbox: The initial bounding box to set
+    /// - Returns: true if timer was started (was nil), false if already running
+    private func startDocumentDetectionIfNeeded(with bbox: CGRect) -> Bool {
+        timingLock.lock()
+        defer { timingLock.unlock() }
+
+        guard documentDetectionStartTime == nil else {
+            return false
+        }
+
+        documentDetectionStartTime = Date()
+        initialBoundingBox = bbox
+        return true
+    }
+
+    /// Sets the last bounding box (thread-safe)
+    private func setLastBoundingBox(_ bbox: CGRect?) {
+        timingLock.lock()
+        lastBoundingBox = bbox
+        timingLock.unlock()
+    }
+
+    /// Clears last bounding box and resets capture state (thread-safe)
+    private func resetCaptureState() {
+        timingLock.lock()
+        lastBoundingBox = nil
+        displayedFeedbackType = .scanning
+        pendingFeedbackType = nil
+        pendingFeedbackStartTime = nil
+        timingLock.unlock()
+    }
+
     /// Transitions to manual mode when autocapture timeout is reached
-    private func transitionToManualMode() {
+    private func transitionToManualMode() async {
         resetDocumentDetectionTimer()
         feedbackType = .scanningManual
-        updateUI()
+        timingLock.lock()
+        displayedFeedbackType = .scanningManual
+        pendingFeedbackType = nil
+        pendingFeedbackStartTime = nil
+        timingLock.unlock()
+        await updateUI()
     }
-    
-    // MARK: - Manual Mode Timer (placeholder methods)
-    
-    /// Starts timer for manual mode fallback (currently a no-op)
-    private func startManualModeTimer() {
-        // Placeholder: Timer logic can be implemented here if needed
-        // Currently, manual mode transition is handled by hasManualTimeout()
+
+    /// Updates feedback with debouncing to prevent flickering (thread-safe)
+    /// Only updates the displayed feedback if the new type has been consistent for feedbackDebounceTime
+    /// - Parameter newFeedback: The new feedback type to potentially display
+    /// - Returns: true if the displayed feedback was updated, false if still debouncing
+    private func updateDebouncedFeedback(_ newFeedback: DocumentFeedbackType) -> Bool {
+        timingLock.lock()
+        defer { timingLock.unlock() }
+
+        // Scanning feedback should always be shown immediately (good state)
+        // Also skip debouncing when in manual mode
+        if newFeedback == .scanning || newFeedback == .scanningManual {
+            feedbackType = newFeedback
+            displayedFeedbackType = newFeedback
+            pendingFeedbackType = nil
+            pendingFeedbackStartTime = nil
+            return true
+        }
+
+        // If this is the same as currently displayed, nothing to do
+        if newFeedback == displayedFeedbackType {
+            pendingFeedbackType = nil
+            pendingFeedbackStartTime = nil
+            return false
+        }
+
+        // If this is a new pending feedback type, start the timer
+        if pendingFeedbackType != newFeedback {
+            pendingFeedbackType = newFeedback
+            pendingFeedbackStartTime = Date()
+            return false
+        }
+
+        // Check if we've waited long enough to show this feedback
+        guard let startTime = pendingFeedbackStartTime else {
+            pendingFeedbackType = newFeedback
+            pendingFeedbackStartTime = Date()
+            return false
+        }
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        if elapsed >= Self.feedbackDebounceTime {
+            feedbackType = newFeedback
+            displayedFeedbackType = newFeedback
+            pendingFeedbackType = nil
+            pendingFeedbackStartTime = nil
+            return true
+        }
+
+        return false
     }
-    
-    /// Cancels manual mode timer (currently a no-op)
-    private func cancelManualModeTimer() {
-        // Placeholder: Timer cleanup logic can be implemented here if needed
-        // Currently, manual mode transition is handled by hasManualTimeout()
+
+    /// Resets debounce state (thread-safe, call when resetting detection state)
+    private func resetFeedbackDebounce() {
+        timingLock.lock()
+        pendingFeedbackType = nil
+        pendingFeedbackStartTime = nil
+        timingLock.unlock()
+    }
+
+    private func isQualityDetection(_ document: DetectionResult) -> Bool {
+        let bbox = document.boundingBox
+        let width = bbox.width
+        let centerX = bbox.midX
+        let centerY = bbox.midY
+
+        let distance = sqrt(pow(centerX - 0.5, 2) + pow(centerY - 0.5, 2))
+
+        let isRightSize = width >= Self.minDocumentWidth && width <= Self.maxDocumentWidth
+        let isCentered = distance <= Self.centerDistanceThreshold
+
+        return isRightSize && isCentered
+    }
+
+    private func isStableDetection(_ currentBbox: CGRect) -> Bool {
+        timingLock.lock()
+        let lastBbox = lastBoundingBox
+        let initBbox = initialBoundingBox
+        timingLock.unlock()
+
+        guard let lastBbox, let initBbox else {
+            return true
+        }
+
+        let dx = abs(currentBbox.midX - lastBbox.midX)
+        let dy = abs(currentBbox.midY - lastBbox.midY)
+        let dw = abs(currentBbox.width - lastBbox.width)
+        let dh = abs(currentBbox.height - lastBbox.height)
+
+        let isFrameStable = dx < Self.stabilityThreshold && dy < Self.stabilityThreshold &&
+            dw < Self.stabilityThreshold && dh < Self.stabilityThreshold
+
+        let tdx = abs(currentBbox.midX - initBbox.midX)
+        let tdy = abs(currentBbox.midY - initBbox.midY)
+        let tdw = abs(currentBbox.width - initBbox.width)
+        let tdh = abs(currentBbox.height - initBbox.height)
+
+        let isTotalStable = tdx < Self.maxTotalMovement && tdy < Self.maxTotalMovement &&
+            tdw < Self.maxTotalMovement && tdh < Self.maxTotalMovement
+
+        return isFrameStable && isTotalStable
+    }
+
+    private func updateDetectionFeedback(_ document: DetectionResult) {
+        let bbox = document.boundingBox
+        let newFeedback: DocumentFeedbackType =
+            if bbox.width < Self.minDocumentWidth {
+                .closer
+            } else if bbox.width > Self.maxDocumentWidth {
+                .further
+            } else {
+                .center
+            }
+        _ = updateDebouncedFeedback(newFeedback)
     }
 }
 
 extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
-    func viewDidLoad() {
+    func viewDidLoad() async {
         guard let router else {
-            view?.showError("Router not configured")
+            await view?.showError("Router not configured")
             return
         }
 
-        guard let frontUploadUrl = router.frontUploadUrl, !frontUploadUrl.isEmpty else {
-            view?.showError("Missing front upload URL")
+        let frontUploadUrl = await router.frontUploadUrl
+        let reverseUploadUrl = await router.reverseUploadUrl
+
+        guard let frontUploadUrl, !frontUploadUrl.isEmpty else {
+            await view?.showError("Missing front upload URL")
             return
         }
 
-        let isSingleSided = (router.reverseUploadUrl == nil || router.reverseUploadUrl?.isEmpty == true)
-        
-        // Declare reverseUploadUrl outside of conditional scope
-        let reverseUploadUrl: String?
+        let isSingleSided = (reverseUploadUrl == nil || reverseUploadUrl?.isEmpty == true)
+
         if !isSingleSided {
-            guard let uploadUrl = router.reverseUploadUrl, !uploadUrl.isEmpty else {
-                view?.showError("Missing reverse upload URL")
+            guard let reverseUploadUrl, !reverseUploadUrl.isEmpty else {
+                await view?.showError("Missing reverse upload URL")
                 return
             }
-            reverseUploadUrl = uploadUrl
-        } else {
-            reverseUploadUrl = nil
         }
 
-        interactor?.setUploadUrls(frontUploadUrl: frontUploadUrl, reverseUploadUrl: reverseUploadUrl)
+        interactor?
+            .setUploadUrls(
+                frontUploadUrl: frontUploadUrl,
+                reverseUploadUrl: reverseUploadUrl
+            )
 
         // Initialize autodetection state
-        feedbackType = useAutocapture ? .none : .scanningManual
+        feedbackType = useAutocapture ? .searching : .scanningManual
 
         if useAutocapture {
             startDetectionProcessingTimer()
         }
 
-        view?.setupCamera()
+        await view?.setupCamera()
 
-        updateUI()
-        startManualModeTimer()
+        await updateUI()
     }
 
-    func viewWillAppear() {
+    func viewWillAppear() async {
         // On initial load, skip restart logic as it's handled by viewDidLoad
         guard lifecycleState != .uninitialized else {
             print("🟢 DocumentCapturePresenter: viewWillAppear - initial load, skipping")
@@ -255,68 +433,90 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
             return
         }
 
+        // Clear preview for side that failed evaluation when returning from feedback
+        if let sideToClear = sideNeedingPreviewClear {
+            sideNeedingPreviewClear = nil
+            switch sideToClear {
+            case .front:
+                frontPhotoStatus = nil
+                await updateUI(frontPhotoDataUpdate: nil, clearFrontPhoto: true)
+            case .back:
+                backPhotoStatus = nil
+                await updateUI(backPhotoDataUpdate: nil, clearBackPhoto: true)
+            default:
+                break
+            }
+        }
+
         // Restart detection timers when returning (e.g., from background or feedback modal)
         if useAutocapture {
             resetDocumentDetectionTimer()
             startDetectionProcessingTimer()
         }
 
-        view?.setupCamera()
+        await view?.setupCamera()
     }
 
-    private func resetToInitialState() {
+    private func resetToInitialState() async {
         // Reset all state to initial values for a fresh start
         lifecycleState = .stopped
-        feedbackType = useAutocapture ? .none : .scanningManual
+        feedbackType = useAutocapture ? .searching : .scanningManual
+
+        timingLock.lock()
+        displayedFeedbackType = feedbackType
+        lastBoundingBox = nil
+        timingLock.unlock()
+
         evaluationErrorRetryCount = 0
         currentEvaluationContext = nil
 
-        // Reset detection timers for back side
+        // Reset detection timers and debounce state
         resetDocumentDetectionTimer()
         startDetectionProcessingTimer()
-        updateUI()
+        resetFeedbackDebounce()
+        await updateUI()
     }
 
-    func cameraReady() {
+    func cameraReady() async {
         lifecycleState = .ready
     }
 
-    func viewWillDisappear() {
+    func viewWillDisappear() async {
         // Pause video first to discard any in-progress recording
         if lifecycleState == .capturing {
-            view?.pauseVideo()
+            await view?.pauseVideo()
         }
 
         // Then stop camera completely (resets skipMediaNotification = false for clean restart)
-        view?.stopCamera()
+        await view?.stopCamera()
 
         // Set lifecycle state to stopped so we can restart when returning
         lifecycleState = .stopped
 
-        // Clean up timers
+        // Clean up timers and debounce state
         resetDocumentDetectionTimer()
         resetDetectionProcessingTimer()
+        resetFeedbackDebounce()
     }
 
-    func photoCaptured(photoData: Data) {
+    func photoCaptured(photoData: Data) async {
         guard !isUploading else {
             return
         }
 
-        guard photoData.count > 0 else {
-            view?.showError("Captured photo is empty")
+        guard !photoData.isEmpty else {
+            await view?.showError("Captured photo is empty")
             lifecycleState = .ready
             return
         }
 
-        cancelManualModeTimer()
         isUploading = true
         lifecycleState = .capturing
         feedbackType = .scanning
         showLoadingScreen = true
         evaluationErrorRetryCount = 0
 
-        view?.pauseVideo()
+        await view?.pauseVideo()
 
         // Reset detection timers during capture/upload
         resetDocumentDetectionTimer()
@@ -325,59 +525,65 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
         switch currentSide {
         case .front:
             frontPhotoStatus = .loading
-            updateUI(frontPhotoDataUpdate: photoData)
+            await updateUI(frontPhotoDataUpdate: photoData)
             handleCaptureFlow(side: .front, photoData: photoData)
         case .back:
             backPhotoStatus = .loading
-            updateUI(backPhotoDataUpdate: photoData)
+            await updateUI(backPhotoDataUpdate: photoData)
             handleCaptureFlow(side: .back, photoData: photoData)
-        default:
-            isUploading = false
-            lifecycleState = .ready
-            feedbackType = useAutocapture ? .none : .scanningManual
-            showLoadingScreen = false
-            updateUI()
-            view?.showError("Unknown document capture side")
         }
     }
 
-    func handleCaptureEvent(_ event: DocumentAutoCaptureEvent) {
-        if event is DocumentAutoCaptureEventHelpRequested {
+    func handleCaptureEvent(_ event: DocumentAutoCaptureEvent) async {
+        switch event {
+        case .helpRequested:
             showHelpDialog = true
-            updateUI()
-            return
-        }
-
-        if event is DocumentAutoCaptureEventHelpDismissed {
+            await updateUI()
+        case .helpDismissed:
             showHelpDialog = false
             // Reset detection state when returning from help
             if useAutocapture {
                 resetDocumentDetectionTimer()
                 startDetectionProcessingTimer()
-                feedbackType = .none
+                resetFeedbackDebounce()
+                feedbackType = .searching
+                timingLock.lock()
+                displayedFeedbackType = .searching
+                timingLock.unlock()
                 lifecycleState = .ready
             }
 
-            updateUI()
-            return
-        }
-
-        if event is DocumentAutoCaptureEventSwitchToManualMode {
+            await updateUI()
+        case .switchToManualMode:
             showHelpDialog = false
             feedbackType = .scanningManual
+            timingLock.lock()
+            displayedFeedbackType = .scanningManual
+            timingLock.unlock()
             resetDocumentDetectionTimer()
             resetDetectionProcessingTimer()
-            updateUI()
-            return
-        }
-
-        if event is DocumentAutoCaptureEventManualCaptureRequested {
-            view?.takePicture()
-            return
+            resetFeedbackDebounce()
+            await updateUI()
+        case .manualCaptureRequested:
+            await view?.takePicture()
         }
     }
 
-    private func validateCurrentStateAndResetTimer() -> Bool {
+    func manualCaptureTapped() async {
+        await handleCaptureEvent(.manualCaptureRequested)
+    }
+
+    func cancelTapped() async {
+        await view?.stopCamera()
+        await router?.handleCancellation()
+    }
+
+    func retryTapped() async {
+        await resetToInitialState()
+        await view?.setupCamera()
+    }
+
+    private func validateCurrentStateAndResetTimer() async -> Bool {
         // Skip detection processing if not in autocapture mode or already capturing/uploading
         guard useAutocapture,
               lifecycleState == .ready,
@@ -390,30 +596,37 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
 
         // Check for manual timeout - transition to manual mode
         if hasManualTimeout() {
-            transitionToManualMode()
+            await transitionToManualMode()
             return false
         }
 
         return true
     }
 
-    // swiftlint:disable:next large_tuple
-    private func processDocumentDetection(detected: (document: DetectionResult, frontScore: Float, backScore: Float)) {
-        let isFront = detected.frontScore >= detected.backScore
+    private func processDocumentDetection(_ detection: DocumentDetection) async {
+        let isFront = detection.isFrontSide
 
         let isInvalidSide = (isFront && currentSide == .back) || (!isFront && currentSide == .front)
         if isInvalidSide {
             resetDocumentDetectionTimer()
-            feedbackType = .rotate
-            updateUI()
-
+            if updateDebouncedFeedback(.rotate) {
+                await updateUI()
+            }
             return
         }
 
-        // Document detected - start or continue detection timer
-        if documentDetectionStartTime == nil {
-            startDocumentDetectionTimer()
+        // Check quality and stability (Match Android)
+        let bbox = detection.document.boundingBox
+        if isQualityDetection(detection.document), isStableDetection(bbox) {
+            // Document detected - start or continue detection timer (thread-safe)
+            _ = startDocumentDetectionIfNeeded(with: bbox)
+            _ = updateDebouncedFeedback(.scanning)
+        } else {
+            resetDocumentDetectionTimer()
+            updateDetectionFeedback(detection.document)
         }
+
+        setLastBoundingBox(bbox)
 
         // Check if document has been detected long enough for auto-capture
         if hasSufficientDocumentDetection() {
@@ -421,20 +634,19 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
             feedbackType = .scanning
             resetDocumentDetectionTimer()
             resetDetectionProcessingTimer()
+            resetCaptureState()
 
-            updateUI()
-            view?.takePicture()
+            await updateUI()
+            await view?.takePicture()
+        } else {
+            await updateUI()
         }
     }
 
-    func detectionsReceived(_ results: [DetectionResult]) {
-        let isValid = validateCurrentStateAndResetTimer()
-        if !isValid {
-            return
-        }
+    func detectionsReceived(_ results: [DetectionResult]) async {
+        guard await validateCurrentStateAndResetTimer() else { return }
 
-        // swiftlint:disable:next large_tuple
-        var detected: (document: DetectionResult, frontScore: Float, backScore: Float)?
+        var detected: DocumentDetection?
 
         for document in results {
             guard case .document(let scores) = document.category,
@@ -446,77 +658,59 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
 
             if detected != nil {
                 // Multiple documents
-                feedbackType = .locate
                 resetDocumentDetectionTimer()
-                updateUI()
+                if updateDebouncedFeedback(.multipleDocuments) {
+                    await updateUI()
+                }
                 return
             }
 
-            detected = (document, frontScore, backScore)
+            detected = DocumentDetection(document: document, frontScore: frontScore, backScore: backScore)
         }
 
         guard let detected else {
-            feedbackType = .locate
             resetDocumentDetectionTimer()
-            updateUI()
+            setLastBoundingBox(nil)
+            if updateDebouncedFeedback(.locate) {
+                await updateUI()
+            }
             return
         }
 
-        processDocumentDetection(detected: detected)
+        await processDocumentDetection(detected)
     }
 }
 
 extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
-    func photoUploadCompleted(side: DocumentCaptureSide) {
+    func photoUploadCompleted(side: DocumentCaptureSide) async {
         isUploading = false
         showLoadingScreen = false
 
         switch side {
         case .front:
             frontPhotoStatus = .success
-            updateUI()
+            await updateUI()
 
-            let isSingleSided = (router?.reverseUploadUrl == nil || router?.reverseUploadUrl?.isEmpty == true)
+            let reverseUploadUrl = await router?.reverseUploadUrl
+            let isSingleSided = (reverseUploadUrl == nil || reverseUploadUrl?.isEmpty == true)
 
             if isSingleSided {
-                view?.stopCamera()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    guard let self else { return }
-                    do {
-                        try self.router?.navigateToResult(validationId: self.validationId, loadingType: .document)
-                    } catch {
-                        self.view?.showError(error.localizedDescription)
-                    }
-                }
+                await navigateToResultAfterDelay()
             } else {
-                transitionToBackSideWithRotation()
+                await transitionToBackSideWithRotation()
             }
 
         case .back:
             backPhotoStatus = .success
-            updateUI()
+            await updateUI()
 
-            view?.stopCamera()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self else { return }
-                do {
-                    try self.router?.navigateToResult(validationId: self.validationId, loadingType: .document)
-                } catch {
-                    self.view?.showError(error.localizedDescription)
-                }
-            }
-
-        default:
-            feedbackType = .scanningManual
-            showLoadingScreen = false
-            updateUI()
-            view?.showError("Unknown document capture side")
+            await navigateToResultAfterDelay()
         }
     }
 
-    func photoUploadFailed(side: DocumentCaptureSide, error: ValidationError) {
+    func photoUploadFailed(side: DocumentCaptureSide, error: TruoraException) async {
         isUploading = false
-        feedbackType = useAutocapture ? .none : .scanningManual
+        feedbackType = useAutocapture ? .searching : .scanningManual
         showLoadingScreen = false
         lifecycleState = .ready
 
@@ -532,12 +726,14 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
             startDetectionProcessingTimer()
         }
 
-        updateUI()
-        view?.showError(error.localizedDescription)
-        view?.setupCamera()
+        await updateUI()
+        await view?.showError(
+            error.errorDescription ?? "An error occurred during photo upload. Please try again."
+        )
+        await view?.setupCamera()
     }
 
-    func imageEvaluationStarted(side: DocumentCaptureSide, previewData: Data) {
+    func imageEvaluationStarted(side: DocumentCaptureSide, previewData: Data) async {
         isUploading = true
         showLoadingScreen = true
         feedbackType = .scanning
@@ -545,17 +741,18 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
 
         if side == .front {
             frontPhotoStatus = .loading
-            updateUI(frontPhotoDataUpdate: previewData)
+            await updateUI(frontPhotoDataUpdate: previewData)
         } else if side == .back {
             backPhotoStatus = .loading
-            updateUI(backPhotoDataUpdate: previewData)
+            await updateUI(backPhotoDataUpdate: previewData)
         } else {
-            updateUI()
+            await updateUI()
         }
     }
 
-    func imageEvaluationSucceeded(side: DocumentCaptureSide, previewData: Data) {
+    func imageEvaluationSucceeded(side: DocumentCaptureSide, previewData: Data) async {
         evaluationErrorRetryCount = 0
+        sideNeedingPreviewClear = nil
 
         isUploading = true
         showLoadingScreen = true
@@ -563,18 +760,18 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
 
         if side == .front {
             frontPhotoStatus = .loading
-            updateUI(frontPhotoDataUpdate: previewData)
+            await updateUI(frontPhotoDataUpdate: previewData)
         } else if side == .back {
             backPhotoStatus = .loading
-            updateUI(backPhotoDataUpdate: previewData)
+            await updateUI(backPhotoDataUpdate: previewData)
         } else {
-            updateUI()
+            await updateUI()
         }
 
         interactor?.uploadPhoto(side: side, photoData: previewData)
     }
 
-    func imageEvaluationFailed(side: DocumentCaptureSide, previewData: Data, reason: String?) {
+    func imageEvaluationFailed(side: DocumentCaptureSide, previewData: Data, reason: String?) async {
         isUploading = false
         showLoadingScreen = false
         lifecycleState = .stopped
@@ -583,27 +780,40 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
         resetDocumentDetectionTimer()
         resetDetectionProcessingTimer()
 
+        // Mark side for preview clearing when returning from feedback
+        sideNeedingPreviewClear = side
+
         incrementEvaluationFailureAttempts(side: side)
         let retriesLeft = retriesLeftForSide(side)
 
         let scenario = mapReasonToScenario(reason: reason, side: side)
 
         do {
-            try router?.navigateToDocumentFeedback(
+            try await router?.navigateToDocumentFeedback(
                 feedback: scenario,
                 capturedImageData: previewData,
                 retriesLeft: retriesLeft
             )
         } catch {
-            view?.showError(error.localizedDescription)
+            await view?.showError(error.localizedDescription)
         }
     }
 
-    func imageEvaluationErrored(side: DocumentCaptureSide, error: ValidationError) {
-        if evaluationErrorRetryCount < Self.maxEvaluationErrorRetries,
+    func imageEvaluationErrored(side: DocumentCaptureSide, error: TruoraException) async {
+        // Don't retry on authentication errors (401) - these are permanent failures
+        let isRetryableError = !isAuthenticationError(error)
+
+        if isRetryableError,
+           evaluationErrorRetryCount < Self.maxEvaluationErrorRetries,
            let context = currentEvaluationContext,
            context.side == side {
             evaluationErrorRetryCount += 1
+
+            // Exponential backoff: 1s, 2s, 4s...
+            let delaySeconds = pow(2.0, Double(evaluationErrorRetryCount - 1))
+            let delayNanoseconds = UInt64(delaySeconds * 1_000_000_000)
+            try? await timeProvider.sleep(nanoseconds: delayNanoseconds)
+
             interactor?.evaluateImage(
                 side: side,
                 photoData: context.photoData,
@@ -614,14 +824,19 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
             return
         }
 
+        // Clear preview state since we're not showing feedback
+        sideNeedingPreviewClear = nil
+
         guard let context = currentEvaluationContext, context.side == side else {
             isUploading = false
             showLoadingScreen = false
 
             feedbackType = .scanningManual
-            updateUI()
-            view?.setupCamera()
-            view?.showError(error.localizedDescription)
+            await updateUI()
+            await view?.setupCamera()
+            await view?.showError(
+                error.errorDescription ?? "An error occurred during image evaluation. Please try again."
+            )
             return
         }
 
@@ -629,14 +844,13 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
         showLoadingScreen = true
         feedbackType = .scanning
 
-        if side == .front {
+        switch side {
+        case .front:
             frontPhotoStatus = .loading
-            updateUI(frontPhotoDataUpdate: context.photoData)
-        } else if side == .back {
+            await updateUI(frontPhotoDataUpdate: context.photoData)
+        case .back:
             backPhotoStatus = .loading
-            updateUI(backPhotoDataUpdate: context.photoData)
-        } else {
-            updateUI()
+            await updateUI(backPhotoDataUpdate: context.photoData)
         }
 
         interactor?.uploadPhoto(side: side, photoData: context.photoData)
@@ -644,11 +858,23 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
 }
 
 private extension DocumentCapturePresenter {
+    func navigateToResultAfterDelay() async {
+        await view?.stopCamera()
+
+        try? await timeProvider.sleep(nanoseconds: 500_000_000)
+
+        do {
+            try await router?.navigateToResult(validationId: validationId, loadingType: .document)
+        } catch {
+            await view?.showError(error.localizedDescription)
+        }
+    }
+
     func handleCaptureFlow(side: DocumentCaptureSide, photoData: Data) {
-        guard let router else {
+        guard router != nil else {
             isUploading = false
             showLoadingScreen = false
-            view?.showError("Router not configured")
+            Task { await view?.showError("Router not configured") }
             return
         }
 
@@ -685,8 +911,6 @@ private extension DocumentCapturePresenter {
             frontEvaluationFailureAttempts
         case .back:
             backEvaluationFailureAttempts
-        default:
-            0
         }
     }
 
@@ -696,8 +920,6 @@ private extension DocumentCapturePresenter {
             frontEvaluationFailureAttempts += 1
         case .back:
             backEvaluationFailureAttempts += 1
-        default:
-            break
         }
     }
 
@@ -728,6 +950,23 @@ private extension DocumentCapturePresenter {
                 return .backOfDocumentNotFound
             }
             return .documentNotFound
+        }
+    }
+
+    /// Checks if the error is an authentication error (401 Unauthorized)
+    /// Authentication errors should not be retried as they indicate a permanent failure
+    private func isAuthenticationError(_ error: TruoraException) -> Bool {
+        switch error {
+        case .network(_, let underlyingError):
+            // Check underlying TruoraAPIError for structured unauthorized detection
+            if let apiError = underlyingError as? TruoraAPIError {
+                if case .unauthorized = apiError {
+                    return true
+                }
+            }
+            return false
+        case .sdk, .validationApi:
+            return false
         }
     }
 }

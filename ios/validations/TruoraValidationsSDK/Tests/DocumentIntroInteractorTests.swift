@@ -6,10 +6,9 @@
 //
 
 import XCTest
-
 @testable import TruoraValidationsSDK
 
-final class DocumentIntroInteractorTests: XCTestCase {
+@MainActor final class DocumentIntroInteractorTests: XCTestCase {
     private var interactor: DocumentIntroInteractor!
     private var mockPresenter: MockDocumentIntroPresenter!
 
@@ -60,11 +59,11 @@ final class DocumentIntroInteractorTests: XCTestCase {
         XCTAssertNil(optionalInteractor)
     }
 
-    func testCreateValidation_withInjectedHandler_callsValidationCreatedAndSendsCorrectFormData() {
+    func testCreateValidation_withInjectedHandler_callsValidationCreatedAndSendsCorrectRequest() {
         let accountId = "test-account-id"
         let expectation = self.expectation(description: "validationCreated called")
 
-        var capturedFormData: [String: String]?
+        var capturedRequest: NativeValidationRequest?
         mockPresenter.onValidationCreated = {
             expectation.fulfill()
         }
@@ -72,27 +71,18 @@ final class DocumentIntroInteractorTests: XCTestCase {
         let interactor = DocumentIntroInteractor(
             presenter: mockPresenter,
             country: "PE",
-            documentType: "national-id",
-            createValidationHandler: { formData in
-                capturedFormData = formData
-                return ValidationCreateResponse(
-                    validationId: "validation-id",
-                    accountId: accountId,
-                    type: "document-validation",
-                    validationStatus: "pending",
-                    lifecycleStatus: "active",
-                    threshold: nil,
-                    creationDate: "2025-01-01T00:00:00Z",
-                    ipAddress: nil,
-                    details: nil,
-                    instructions: ValidationInstructions(
-                        fileUploadLink: nil,
-                        frontUrl: "https://example.com/front",
-                        reverseUrl: "https://example.com/reverse"
-                    )
+            documentType: "national-id"
+        ) { request in
+            capturedRequest = request
+            return NativeValidationCreateResponse(
+                validationId: "validation-id",
+                instructions: NativeValidationInstructions(
+                    fileUploadLink: nil,
+                    frontUrl: "https://example.com/front",
+                    reverseUrl: "https://example.com/reverse"
                 )
-            }
-        )
+            )
+        }
 
         interactor.createValidation(accountId: accountId)
 
@@ -101,31 +91,30 @@ final class DocumentIntroInteractorTests: XCTestCase {
         XCTAssertTrue(mockPresenter.validationCreatedCalled)
         XCTAssertFalse(mockPresenter.validationFailedCalled)
 
-        XCTAssertEqual(capturedFormData?["type"], "document-validation")
-        XCTAssertEqual(capturedFormData?["country"], "pe")
-        XCTAssertEqual(capturedFormData?["document_type"], "national-id")
-        XCTAssertEqual(capturedFormData?["account_id"], accountId)
-        XCTAssertEqual(capturedFormData?["user_authorized"], "true")
+        XCTAssertEqual(capturedRequest?.type, "document-validation")
+        XCTAssertEqual(capturedRequest?.country, "pe")
+        XCTAssertEqual(capturedRequest?.documentType, "national-id")
+        XCTAssertEqual(capturedRequest?.accountId, accountId)
     }
 }
 
 // MARK: - Mock Presenter
 
-private final class MockDocumentIntroPresenter: DocumentIntroInteractorToPresenter {
+@MainActor private final class MockDocumentIntroPresenter: DocumentIntroInteractorToPresenter {
     private(set) var validationCreatedCalled = false
     private(set) var validationFailedCalled = false
-    private(set) var lastResponse: ValidationCreateResponse?
-    private(set) var lastError: ValidationError?
+    private(set) var lastResponse: NativeValidationCreateResponse?
+    private(set) var lastError: TruoraException?
     var onValidationCreated: (() -> Void)?
     var onValidationFailed: (() -> Void)?
 
-    func validationCreated(response: ValidationCreateResponse) {
+    func validationCreated(response: NativeValidationCreateResponse) {
         validationCreatedCalled = true
         lastResponse = response
         onValidationCreated?()
     }
 
-    func validationFailed(_ error: ValidationError) {
+    func validationFailed(_ error: TruoraException) async {
         validationFailedCalled = true
         lastError = error
         onValidationFailed?()

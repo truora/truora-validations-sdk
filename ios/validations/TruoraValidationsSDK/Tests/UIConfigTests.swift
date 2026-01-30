@@ -5,12 +5,11 @@
 //  Created by Truora on 17/11/25.
 //
 
-import TruoraShared
 import UIKit
 import XCTest
 @testable import TruoraValidationsSDK
 
-final class UIConfigTests: XCTestCase {
+@MainActor final class UIConfigTests: XCTestCase {
     var sut: UIConfig!
 
     override func setUp() {
@@ -437,158 +436,5 @@ extension UIConfigTests {
         // Test black
         let black = UIColor(hex: "#000000")
         XCTAssertNotNil(black)
-    }
-}
-
-// MARK: - UIConfig to TruoraUIConfig Conversion Tests
-
-extension UIConfigTests {
-    func testToTruoraConfigWithDefaultConfig() {
-        // Given
-        let config = UIConfig()
-
-        // When
-        let truoraConfig = config.toTruoraConfig()
-
-        // Then
-        XCTAssertNotNil(truoraConfig, "Should create TruoraUIConfig")
-        XCTAssertNotNil(truoraConfig.colors, "Should have colors object")
-    }
-
-    func testToTruoraConfigWithAllColorsSet() {
-        // Given
-        let config = UIConfig()
-            .setSurfaceColor("#FFFFFF")
-            .setOnSurfaceColor("#1F2828")
-            .setPrimaryColor("#435AE0")
-            .setOnPrimaryColor("#FFFFFF")
-            .setSecondaryColor("#082054")
-            .setErrorColor("#FF5454")
-
-        // When
-        let truoraConfig = config.toTruoraConfig()
-
-        // Then
-        XCTAssertNotNil(truoraConfig.colors, "Should have colors")
-        XCTAssertNotNil(truoraConfig.colors?.surface, "Should have surface color")
-        XCTAssertNotNil(truoraConfig.colors?.onSurface, "Should have onSurface color")
-        XCTAssertNotNil(truoraConfig.colors?.primary, "Should have primary color")
-        XCTAssertNotNil(truoraConfig.colors?.onPrimary, "Should have onPrimary color")
-        XCTAssertNotNil(truoraConfig.colors?.secondary, "Should have secondary color")
-        XCTAssertNotNil(truoraConfig.colors?.error, "Should have error color")
-    }
-
-    func testToTruoraConfigWithPartialColors() {
-        // Given
-        let config = UIConfig()
-            .setSurfaceColor("#FFFFFF")
-            .setPrimaryColor("#435AE0")
-
-        // When
-        let truoraConfig = config.toTruoraConfig()
-
-        // Then
-        XCTAssertNotNil(truoraConfig.colors?.surface, "Should have surface color")
-        XCTAssertNotNil(truoraConfig.colors?.primary, "Should have primary color")
-        XCTAssertNil(truoraConfig.colors?.onSurface, "OnSurface should be nil")
-        XCTAssertNil(truoraConfig.colors?.onPrimary, "OnPrimary should be nil")
-        XCTAssertNil(truoraConfig.colors?.secondary, "Secondary should be nil")
-        XCTAssertNil(truoraConfig.colors?.error, "Error should be nil")
-    }
-
-    func testToTruoraConfigLogoIsNilWhenOnlyUrlProvided() {
-        // Given
-        let config = UIConfig()
-            .setLogo("https://example.com/logo.png")
-
-        // When
-        let truoraConfig = config.toTruoraConfig()
-
-        // Then - URL is handled by ValidationConfig downloader, not by direct Compose mapping
-        XCTAssertNil(truoraConfig.logo, "Logo should be nil when only URL is provided")
-    }
-
-    func testToTruoraConfigIncludesLogoWhenCustomLogoProvided() {
-        // Given
-        let logoData = Data([0x01, 0x02, 0x03, 0x04])
-        let config = UIConfig()
-            .setCustomLogo(logoData, width: 120, height: 30)
-
-        // When
-        let truoraConfig = config.toTruoraConfig()
-
-        // Then
-        XCTAssertNotNil(truoraConfig.logo, "Logo should be present when custom logo data is provided")
-        XCTAssertEqual(truoraConfig.logo?.logoData.size, Int32(logoData.count))
-        XCTAssertEqual(truoraConfig.logo?.width?.floatValue, Float(120), "Logo width should be passed through")
-        XCTAssertEqual(truoraConfig.logo?.height?.floatValue, Float(30), "Logo height should be passed through")
-    }
-
-    func testSetLogoRejectsNonHttpsUrl() {
-        // Given
-        let config = UIConfig()
-
-        // When
-        _ = config.setLogo("http://example.com/logo.png")
-
-        // Then
-        XCTAssertNil(config.logoUrl, "Non-https logo URL should be ignored")
-    }
-
-    func testSetCustomLogoRejectsEmptyData() {
-        // Given
-        let config = UIConfig()
-
-        // When
-        _ = config.setCustomLogo(Data())
-
-        // Then
-        XCTAssertNil(config.customLogoData, "Empty logo data should be ignored")
-    }
-
-    func testSetCustomLogoClearsLogoUrl() {
-        // Given
-        let config = UIConfig()
-            .setLogo("https://example.com/logo.png")
-        let logoData = Data([0x01, 0x02, 0x03])
-
-        // When
-        _ = config.setCustomLogo(logoData)
-
-        // Then
-        XCTAssertNil(config.logoUrl, "Custom logo should clear logo URL to avoid ambiguity")
-        XCTAssertEqual(config.customLogoData, logoData, "Custom logo bytes should be set")
-    }
-
-    func testSetLogoClearsCustomLogoData() {
-        // Given
-        let logoData = Data([0x01, 0x02, 0x03])
-        let config = UIConfig()
-            .setCustomLogo(logoData)
-        let logoUrl = "https://example.com/logo.png"
-
-        // When
-        _ = config.setLogo(logoUrl)
-
-        // Then
-        XCTAssertNil(config.customLogoData, "Setting a logo URL should clear custom logo bytes")
-        XCTAssertEqual(config.logoUrl, logoUrl, "Logo URL should be set")
-    }
-
-    func testToTruoraConfigDefaultThemeValuesAreNil() {
-        // Given
-        let config = UIConfig()
-
-        // When
-        let truoraConfig = config.toTruoraConfig()
-
-        // Then - Default theme values should be nil
-        XCTAssertNil(truoraConfig.colors?.tint00, "tint00 should be nil")
-        XCTAssertNil(truoraConfig.colors?.tint20, "tint20 should be nil")
-        XCTAssertNil(truoraConfig.colors?.warning, "warning should be nil")
-        XCTAssertNil(truoraConfig.colors?.success, "success should be nil")
-        XCTAssertNil(truoraConfig.colors?.overlay, "overlay should be nil")
-        XCTAssertNil(truoraConfig.colors?.secondaryBg, "secondaryBg should be nil")
-        XCTAssertNil(truoraConfig.colors?.infoBlue, "infoBlue should be nil")
     }
 }

@@ -1,3 +1,4 @@
+@MainActor protocol DocumentFeedbackPresenterToView: AnyObject {}
 //
 //  DocumentFeedbackPresenter.swift
 //  TruoraValidationsSDK
@@ -21,19 +22,19 @@ final class DocumentFeedbackPresenter {
 }
 
 extension DocumentFeedbackPresenter: DocumentFeedbackViewToPresenter {
-    func viewDidLoad() {
+    func viewDidLoad() async {
         // No-op for now
     }
 
-    func retryTapped() {
-        router?.dismissDocumentFeedback()
+    func retryTapped() async {
+        await router?.dismissDocumentFeedback()
     }
 
-    func tipsTapped() {
+    func tipsTapped() async {
         // No-op for now - tips functionality may be future work
     }
 
-    func dismissed() {
-        router?.dismissDocumentFeedback()
+    func dismissed() async {
+        await router?.dismissDocumentFeedback()
     }
 }

@@ -6,10 +6,9 @@
 //
 
 import XCTest
-
 @testable import TruoraValidationsSDK
 
-final class TruoraValidationBuilderTests: XCTestCase {
+@MainActor final class TruoraValidationBuilderTests: XCTestCase {
     fileprivate var mockAPIKeyGetter: MockTruoraAPIKeyGetter!
 
     override func setUp() {
@@ -321,9 +320,9 @@ extension TruoraValidationBuilderTests {
             "Should have default threshold"
         )
         XCTAssertTrue(faceConfig.useAutocapture, "Should have default autocapture")
-        XCTAssertTrue(
+        XCTAssertFalse(
             faceConfig.shouldWaitForResults,
-            "Should have default wait for results"
+            "Should have default wait for results (false)"
         )
         XCTAssertEqual(
             faceConfig.timeoutSeconds,
@@ -336,7 +335,7 @@ extension TruoraValidationBuilderTests {
 
 // MARK: - Mock API Key Getter
 
-private class MockTruoraAPIKeyGetter: TruoraAPIKeyGetter {
+@MainActor private class MockTruoraAPIKeyGetter: TruoraAPIKeyGetter {
     var shouldThrowError = false
     var apiKeyToReturn = "test-api-key-123"
     var getApiKeyCalled = false

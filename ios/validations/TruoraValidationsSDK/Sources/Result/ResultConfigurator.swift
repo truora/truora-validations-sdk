@@ -2,45 +2,38 @@
 //  ResultConfigurator.swift
 //  TruoraValidationsSDK
 //
-//  Created by Truora on 30/10/25.
+//  Created by Truora on 21/12/25.
 //
 
-import Foundation
 import SwiftUI
-import TruoraShared
 import UIKit
 
-class ResultConfigurator {
-    /// Builds the Result module with polling capability
-    ///
-    /// - Parameters:
-    ///   - router: The validation router for navigation
-    ///   - validationId: The ID of the validation to poll for
-    /// - Returns: A configured UIViewController for the result screen
-    static func buildModule(
+enum ResultConfigurator {
+    @MainActor static func buildModule(
         router: ValidationRouter,
         validationId: String,
-        loadingType: LoadingType = .face
+        loadingType: ResultLoadingType = .face
     ) throws -> UIViewController {
-        let shouldWaitForResults = ValidationConfig.shared.faceConfig.shouldWaitForResults
-
-        let viewModel = ResultViewModel(loadingType: loadingType)
-        let presenter = ResultPresenter(
+        let interactor = ResultInteractor(
             validationId: validationId,
-            loadingType: loadingType,
-            shouldWaitForResults: shouldWaitForResults
+            loadingType: loadingType
         )
-        let interactor = ResultInteractor(validationId: validationId, loadingType: loadingType)
+
+        let viewModel = ResultViewModel()
+        let presenter = ResultPresenter(
+            view: viewModel,
+            interactor: interactor,
+            router: router,
+            loadingType: loadingType
+        )
 
         viewModel.presenter = presenter
-        presenter.view = viewModel
-        presenter.interactor = interactor
-        presenter.router = router
         interactor.presenter = presenter
 
-        let composeConfig = ValidationConfig.shared.composeConfig
-        let swiftUIView = ResultView(viewModel: viewModel, composeConfig: composeConfig)
+        let config = ValidationConfig.shared.uiConfig
+        let swiftUIView = ResultView(viewModel: viewModel, config: config)
         let hostingController = UIHostingController(rootView: swiftUIView)
+        hostingController.modalPresentationStyle = .fullScreen
 
         return hostingController
     }

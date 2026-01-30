@@ -7,11 +7,9 @@
 
 import AVFoundation
 import XCTest
-
-import TruoraShared
 @testable import TruoraValidationsSDK
 
-final class DocumentSelectionPresenterTests: XCTestCase {
+@MainActor final class DocumentSelectionPresenterTests: XCTestCase {
     private var sut: DocumentSelectionPresenter!
     private var mockView: MockDocumentSelectionView!
     private var mockInteractor: MockDocumentSelectionInteractor!
@@ -33,7 +31,7 @@ final class DocumentSelectionPresenterTests: XCTestCase {
         super.tearDown()
     }
 
-    func testViewDidLoad_fetchesCountries_andDoesNotShowAlertWhenAuthorized() {
+    func testViewDidLoad_fetchesCountries_andDoesNotShowAlertWhenAuthorized() async {
         let cameraChecker = MockCameraPermissionChecker(
             status: .authorized,
             requestAccessResult: nil
@@ -45,13 +43,13 @@ final class DocumentSelectionPresenterTests: XCTestCase {
             cameraPermissionChecker: cameraChecker
         )
 
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         XCTAssertTrue(mockInteractor.fetchSupportedCountriesCalled)
         XCTAssertFalse(mockView.displayCameraPermissionAlertCalled)
     }
 
-    func testViewDidLoad_showsAlertWhenDenied() {
+    func testViewDidLoad_showsAlertWhenDenied() async {
         let cameraChecker = MockCameraPermissionChecker(
             status: .denied,
             requestAccessResult: nil
@@ -63,12 +61,12 @@ final class DocumentSelectionPresenterTests: XCTestCase {
             cameraPermissionChecker: cameraChecker
         )
 
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         XCTAssertTrue(mockView.displayCameraPermissionAlertCalled)
     }
 
-    func testContinueTapped_withoutSelections_setsErrorsAndDoesNotNavigate() {
+    func testContinueTapped_withoutSelections_setsErrorsAndDoesNotNavigate() async {
         let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
         sut = DocumentSelectionPresenter(
             view: mockView,
@@ -77,7 +75,7 @@ final class DocumentSelectionPresenterTests: XCTestCase {
             cameraPermissionChecker: cameraChecker
         )
 
-        sut.continueTapped()
+        await sut.continueTapped()
 
         XCTAssertTrue(mockView.setErrorsCalled)
         XCTAssertTrue(mockView.lastIsCountryError ?? false)
@@ -85,7 +83,7 @@ final class DocumentSelectionPresenterTests: XCTestCase {
         XCTAssertFalse(mockRouter.navigateToDocumentIntroCalled)
     }
 
-    func testContinueTapped_withSelections_butCameraNotAuthorized_showsAlertAndDoesNotNavigate() {
+    func testContinueTapped_withSelections_butCameraNotAuthorized_showsAlertAndDoesNotNavigate() async {
         let cameraChecker = MockCameraPermissionChecker(status: .denied, requestAccessResult: nil)
         sut = DocumentSelectionPresenter(
             view: mockView,
@@ -94,15 +92,15 @@ final class DocumentSelectionPresenterTests: XCTestCase {
             cameraPermissionChecker: cameraChecker
         )
 
-        sut.countrySelected(.co)
-        sut.documentSelected(.nationalId)
-        sut.continueTapped()
+        await sut.countrySelected(.co)
+        await sut.documentSelected(.nationalId)
+        await sut.continueTapped()
 
         XCTAssertTrue(mockView.displayCameraPermissionAlertCalled)
         XCTAssertFalse(mockRouter.navigateToDocumentIntroCalled)
     }
 
-    func testContinueTapped_withValidSelections_andCameraAuthorized_navigatesToDocumentIntroWithMappedValues() {
+    func testContinueTapped_withValidSelections_andCameraAuthorized_navigatesToDocumentIntroWithMappedValues() async {
         let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
         sut = DocumentSelectionPresenter(
             view: mockView,
@@ -110,19 +108,19 @@ final class DocumentSelectionPresenterTests: XCTestCase {
             router: mockRouter,
             cameraPermissionChecker: cameraChecker
         )
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
-        sut.countrySelected(.co)
-        sut.documentSelected(.nationalId)
-        sut.continueTapped()
+        await sut.countrySelected(.co)
+        await sut.documentSelected(.nationalId)
+        await sut.continueTapped()
 
         XCTAssertTrue(mockRouter.navigateToDocumentIntroCalled)
         // Verify ValidationConfig was updated with selected values
-        XCTAssertEqual(ValidationConfig.shared.documentConfig.country, "CO")
+        XCTAssertEqual(ValidationConfig.shared.documentConfig.country, "co")
         XCTAssertEqual(ValidationConfig.shared.documentConfig.documentType, "national-id")
     }
 
-    func testCancelTapped_callsRouterHandleCancellation() {
+    func testCancelTapped_callsRouterHandleCancellation() async {
         let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
         sut = DocumentSelectionPresenter(
             view: mockView,
@@ -131,7 +129,7 @@ final class DocumentSelectionPresenterTests: XCTestCase {
             cameraPermissionChecker: cameraChecker
         )
 
-        sut.cancelTapped()
+        await sut.cancelTapped()
 
         XCTAssertTrue(mockRouter.handleCancellationCalled)
     }
@@ -139,13 +137,13 @@ final class DocumentSelectionPresenterTests: XCTestCase {
 
 // MARK: - Mocks
 
-private final class MockDocumentSelectionView: DocumentSelectionPresenterToView {
+@MainActor private final class MockDocumentSelectionView: DocumentSelectionPresenterToView {
     private(set) var setCountriesCalled = false
-    private(set) var lastCountries: [TruoraCountry]?
+    private(set) var lastCountries: [NativeCountry]?
 
     private(set) var updateSelectionCalled = false
-    private(set) var lastSelectedCountry: TruoraCountry?
-    private(set) var lastSelectedDocument: TruoraDocumentType?
+    private(set) var lastSelectedCountry: NativeCountry?
+    private(set) var lastSelectedDocument: NativeDocumentType?
 
     private(set) var setErrorsCalled = false
     private(set) var lastIsCountryError: Bool?
@@ -156,15 +154,23 @@ private final class MockDocumentSelectionView: DocumentSelectionPresenterToView 
 
     private(set) var displayCameraPermissionAlertCalled = false
 
-    func setCountries(_ countries: [TruoraCountry]) {
+    private(set) var setCountryLockedCalled = false
+    private(set) var lastIsCountryLocked: Bool?
+
+    func setCountries(_ countries: [NativeCountry]) {
         setCountriesCalled = true
         lastCountries = countries
     }
 
-    func updateSelection(selectedCountry: TruoraCountry?, selectedDocument: TruoraDocumentType?) {
+    func updateSelection(selectedCountry: NativeCountry?, selectedDocument: NativeDocumentType?) {
         updateSelectionCalled = true
         lastSelectedCountry = selectedCountry
         lastSelectedDocument = selectedDocument
+    }
+
+    func setCountryLocked(_ isLocked: Bool) {
+        setCountryLockedCalled = true
+        lastIsCountryLocked = isLocked
     }
 
     func setErrors(isCountryError: Bool, isDocumentError: Bool) {
@@ -183,7 +189,7 @@ private final class MockDocumentSelectionView: DocumentSelectionPresenterToView 
     }
 }
 
-private final class MockDocumentSelectionInteractor: DocumentSelectionPresenterToInteractor {
+@MainActor private final class MockDocumentSelectionInteractor: DocumentSelectionPresenterToInteractor {
     private(set) var fetchSupportedCountriesCalled = false
 
     func fetchSupportedCountries() {
@@ -191,7 +197,7 @@ private final class MockDocumentSelectionInteractor: DocumentSelectionPresenterT
     }
 }
 
-private final class MockDocumentSelectionRouter: ValidationRouter {
+@MainActor private final class MockDocumentSelectionRouter: ValidationRouter {
     private(set) var handleCancellationCalled = false
     private(set) var navigateToDocumentIntroCalled = false
 

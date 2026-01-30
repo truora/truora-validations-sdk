@@ -6,10 +6,9 @@
 //
 
 import XCTest
-
 @testable import TruoraValidationsSDK
 
-final class DocumentFeedbackPresenterTests: XCTestCase {
+@MainActor final class DocumentFeedbackPresenterTests: XCTestCase {
     private var sut: DocumentFeedbackPresenter!
     private var mockView: MockDocumentFeedbackView!
     private var mockRouter: MockDocumentFeedbackRouter!
@@ -38,23 +37,24 @@ final class DocumentFeedbackPresenterTests: XCTestCase {
         XCTAssertNotNil(sut.router)
     }
 
-    func testViewDidLoad_executesWithoutError() {
-        XCTAssertNoThrow(sut.viewDidLoad())
+    func testViewDidLoad_executesWithoutError() async {
+        await sut.viewDidLoad()
+        // If we get here without throwing, test passes
     }
 
-    func testRetryTapped_dismissesFeedback() {
-        sut.retryTapped()
+    func testRetryTapped_dismissesFeedback() async {
+        await sut.retryTapped()
 
         XCTAssertTrue(mockRouter.dismissDocumentFeedbackCalled)
     }
 
-    func testTipsTapped_executesWithoutError() {
-        XCTAssertNoThrow(sut.tipsTapped())
+    func testTipsTapped_executesWithoutError() async {
+        await sut.tipsTapped()
         XCTAssertFalse(mockRouter.dismissDocumentFeedbackCalled)
     }
 
-    func testDismissed_dismissesFeedback() {
-        sut.dismissed()
+    func testDismissed_dismissesFeedback() async {
+        await sut.dismissed()
 
         XCTAssertTrue(mockRouter.dismissDocumentFeedbackCalled)
     }
@@ -94,9 +94,9 @@ final class DocumentFeedbackPresenterTests: XCTestCase {
 
 // MARK: - Mocks
 
-private final class MockDocumentFeedbackView: DocumentFeedbackPresenterToView {}
+@MainActor private final class MockDocumentFeedbackView: DocumentFeedbackPresenterToView {}
 
-private final class MockDocumentFeedbackRouter: ValidationRouter {
+@MainActor private final class MockDocumentFeedbackRouter: ValidationRouter {
     private(set) var dismissDocumentFeedbackCalled = false
 
     override func dismissDocumentFeedback(completion: (() -> Void)? = nil) {

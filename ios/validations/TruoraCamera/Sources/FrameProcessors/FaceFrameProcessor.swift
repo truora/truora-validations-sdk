@@ -23,6 +23,7 @@ class FaceFrameProcessor: FrameProcessor {
     }
 
     private func setupDetector() {
+        // Note: CoreMLFaceDetector already dispatches callbacks to main thread
         detector.onFacesDetected = { [weak self] detectionResults in
             self?.delegate?.detectionsReceived(detectionResults)
         }
@@ -31,7 +32,6 @@ class FaceFrameProcessor: FrameProcessor {
             let cameraError = CameraError.frameDetectionError(
                 error.localizedDescription
             )
-
             self?.delegate?.reportError(error: cameraError)
         }
     }

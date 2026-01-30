@@ -8,8 +8,8 @@
 import SwiftUI
 import UIKit
 
-class DocumentCaptureConfigurator {
-    static func buildModule(
+enum DocumentCaptureConfigurator {
+    @MainActor static func buildModule(
         router: ValidationRouter,
         validationId: String,
         frontUploadUrl: String,
@@ -34,8 +34,8 @@ class DocumentCaptureConfigurator {
         viewModel.presenter = presenter
         presenter.interactor = interactor
 
-        let composeConfig = ValidationConfig.shared.composeConfig
-        let swiftUIView = DocumentCaptureView(viewModel: viewModel, composeConfig: composeConfig)
+        let config = ValidationConfig.shared.uiConfig
+        let swiftUIView = DocumentCaptureView(viewModel: viewModel, config: config)
         let hostingController = UIHostingController(rootView: swiftUIView)
         hostingController.modalPresentationStyle = .fullScreen
         return hostingController

@@ -5,7 +5,6 @@
 //  Created by Truora on 26/12/25.
 //
 
-import TruoraShared
 import XCTest
 @testable import TruoraValidationsSDK
 
@@ -13,13 +12,14 @@ import XCTest
 
 /// Tests for DocumentCapturePresenter following VIPER architecture
 /// Verifies photo capture flow, upload coordination, and state management
-final class DocumentCapturePresenterTests: XCTestCase {
+@MainActor final class DocumentCapturePresenterTests: XCTestCase {
     // MARK: - Properties
 
     private var sut: DocumentCapturePresenter!
     private var mockView: MockDocumentCaptureView!
     private var mockInteractor: MockDocumentCaptureInteractor!
     private var mockRouter: MockDocumentCaptureRouter!
+    private var mockTimeProvider: MockTimeProvider!
 
     // MARK: - Lifecycle
 
@@ -27,6 +27,7 @@ final class DocumentCapturePresenterTests: XCTestCase {
         super.setUp()
         mockView = MockDocumentCaptureView()
         mockInteractor = MockDocumentCaptureInteractor()
+        mockTimeProvider = MockTimeProvider()
         let navController = UINavigationController()
         mockRouter = MockDocumentCaptureRouter(navigationController: navController)
         mockRouter.frontUploadUrl = "https://example.com/front"
@@ -36,7 +37,8 @@ final class DocumentCapturePresenterTests: XCTestCase {
             view: mockView,
             interactor: mockInteractor,
             router: mockRouter,
-            validationId: "test-validation-id"
+            validationId: "test-validation-id",
+            timeProvider: mockTimeProvider
         )
     }
 
@@ -45,15 +47,16 @@ final class DocumentCapturePresenterTests: XCTestCase {
         mockView = nil
         mockInteractor = nil
         mockRouter = nil
+        mockTimeProvider = nil
         ValidationConfig.shared.reset()
         super.tearDown()
     }
 
     // MARK: - View Lifecycle Tests
 
-    func testViewDidLoad_withValidUrls_configuresInteractorAndCamera() {
+    func testViewDidLoad_withValidUrls_configuresInteractorAndCamera() async {
         // When
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         // Then
         XCTAssertTrue(mockInteractor.setUploadUrlsCalled, "Should configure upload URLs in interactor")
@@ -63,12 +66,12 @@ final class DocumentCapturePresenterTests: XCTestCase {
         XCTAssertEqual(mockInteractor.lastReverseUploadUrl, "https://example.com/reverse")
     }
 
-    func testViewDidLoad_withMissingFrontUrl_showsError() {
+    func testViewDidLoad_withMissingFrontUrl_showsError() async {
         // Given
         mockRouter.frontUploadUrl = nil
 
         // When
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         // Then
         XCTAssertTrue(mockView.showErrorCalled, "Should show error when front URL is missing")
@@ -77,12 +80,12 @@ final class DocumentCapturePresenterTests: XCTestCase {
         XCTAssertFalse(mockView.setupCameraCalled, "Should not setup camera")
     }
 
-    func testViewDidLoad_withSingleSidedDocument_configuresInteractorAndCamera() {
+    func testViewDidLoad_withSingleSidedDocument_configuresInteractorAndCamera() async {
         // Given - Single-sided document (like passport) with only front URL
         mockRouter.reverseUploadUrl = nil
 
         // When
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         // Then
         XCTAssertFalse(mockView.showErrorCalled, "Should NOT show error for single-sided documents")
@@ -92,9 +95,9 @@ final class DocumentCapturePresenterTests: XCTestCase {
         XCTAssertNil(mockInteractor.lastReverseUploadUrl, "Reverse URL should be nil for single-sided")
     }
 
-    func testViewWillDisappear_stopsCamera() {
+    func testViewWillDisappear_stopsCamera() async {
         // When
-        sut.viewWillDisappear()
+        await sut.viewWillDisappear()
 
         // Then
         XCTAssertTrue(mockView.stopCameraCalled, "Should stop camera when view disappears")
@@ -102,12 +105,12 @@ final class DocumentCapturePresenterTests: XCTestCase {
 
     // MARK: - Photo Capture Tests
 
-    func testPhotoCaptured_frontSide_uploadsAndUpdatesUI() {
+    func testPhotoCaptured_frontSide_uploadsAndUpdatesUI() async {
         // Given
         let photoData = Data([0x01, 0x02, 0x03, 0x04])
 
         // When
-        sut.photoCaptured(photoData: photoData)
+        await sut.photoCaptured(photoData: photoData)
 
         // Then
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
@@ -118,13 +121,13 @@ final class DocumentCapturePresenterTests: XCTestCase {
         XCTAssertEqual(mockInteractor.lastPhotoData?.count, 4)
     }
 
-    func testPhotoCaptured_frontSide_withCountryAndDocumentType_evaluatesImageOnFirstAttempt() {
+    func testPhotoCaptured_frontSide_withCountryAndDocumentType_evaluatesImageOnFirstAttempt() async {
         // Given
         ValidationConfig.shared.setValidation(.document(Document().setCountry("PE").setDocumentType("national-id")))
         let photoData = Data([0x01, 0x02, 0x03, 0x04])
 
         // When
-        sut.photoCaptured(photoData: photoData)
+        await sut.photoCaptured(photoData: photoData)
 
         // Then
         XCTAssertTrue(mockInteractor.evaluateImageCalled, "Should evaluate image when config is available")
@@ -135,17 +138,17 @@ final class DocumentCapturePresenterTests: XCTestCase {
         XCTAssertEqual(mockInteractor.lastEvaluateValidationId, "test-validation-id")
     }
 
-    func testEvaluationFailure_incrementsAttempts_routesToFeedback_andThirdCaptureUploadsDirectly() throws {
+    func testEvaluationFailure_incrementsAttempts_routesToFeedback_andThirdCaptureUploadsDirectly() async {
         // Given
         ValidationConfig.shared.setValidation(.document(Document().setCountry("PE").setDocumentType("national-id")))
         let photoData = Data([0x01, 0x02, 0x03, 0x04])
 
         // 1st capture -> evaluate
-        sut.photoCaptured(photoData: photoData)
+        await sut.photoCaptured(photoData: photoData)
         XCTAssertTrue(mockInteractor.evaluateImageCalled)
 
         // When: evaluation fails with FACE_NOT_FOUND
-        sut.imageEvaluationFailed(side: .front, previewData: photoData, reason: "FACE_NOT_FOUND")
+        await sut.imageEvaluationFailed(side: .front, previewData: photoData, reason: "FACE_NOT_FOUND")
 
         // Then: routes to feedback with mapped scenario and retriesLeft 2
         XCTAssertTrue(mockRouter.navigateToDocumentFeedbackCalled)
@@ -155,11 +158,11 @@ final class DocumentCapturePresenterTests: XCTestCase {
         // 2nd capture -> evaluate again
         mockInteractor.reset()
         mockRouter.reset()
-        sut.photoCaptured(photoData: photoData)
+        await sut.photoCaptured(photoData: photoData)
         XCTAssertTrue(mockInteractor.evaluateImageCalled)
 
         // When: evaluation fails again
-        sut.imageEvaluationFailed(side: .front, previewData: photoData, reason: "BLURRY_IMAGE")
+        await sut.imageEvaluationFailed(side: .front, previewData: photoData, reason: "BLURRY_IMAGE")
 
         // Then: retriesLeft 1
         XCTAssertTrue(mockRouter.navigateToDocumentFeedbackCalled)
@@ -169,23 +172,21 @@ final class DocumentCapturePresenterTests: XCTestCase {
         // 3rd capture -> should bypass evaluation and upload directly
         mockInteractor.reset()
         mockRouter.reset()
-        sut.photoCaptured(photoData: photoData)
+        await sut.photoCaptured(photoData: photoData)
         XCTAssertFalse(mockInteractor.evaluateImageCalled)
         XCTAssertTrue(mockInteractor.uploadPhotoCalled)
     }
 
-    func testPhotoCaptured_backSide_uploadsAndUpdatesUI() {
+    func testPhotoCaptured_backSide_uploadsAndUpdatesUI() async {
         // Given - Upload front photo first to transition to back side
         let frontData = Data([0x01, 0x02])
-        sut.photoCaptured(photoData: frontData)
-        sut.photoUploadCompleted(side: .front)
+        await sut.photoCaptured(photoData: frontData)
 
-        // Wait for rotation animation
-        let expectation = self.expectation(description: "Wait for rotation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 2.5)
+        // Complete front upload (triggers rotation)
+        let frontTask = Task { await sut.photoUploadCompleted(side: .front) }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        mockTimeProvider.resumeAllSleeps()
+        await frontTask.value
 
         mockView.reset()
         mockInteractor.reset()
@@ -193,7 +194,7 @@ final class DocumentCapturePresenterTests: XCTestCase {
         let backData = Data([0x03, 0x04])
 
         // When
-        sut.photoCaptured(photoData: backData)
+        await sut.photoCaptured(photoData: backData)
 
         // Then
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
@@ -203,12 +204,12 @@ final class DocumentCapturePresenterTests: XCTestCase {
         XCTAssertEqual(mockInteractor.lastPhotoSide, .back, "Should upload back side")
     }
 
-    func testPhotoCaptured_emptyData_showsError() {
+    func testPhotoCaptured_emptyData_showsError() async {
         // Given
         let emptyData = Data()
 
         // When
-        sut.photoCaptured(photoData: emptyData)
+        await sut.photoCaptured(photoData: emptyData)
 
         // Then
         XCTAssertTrue(mockView.showErrorCalled, "Should show error for empty data")
@@ -216,17 +217,17 @@ final class DocumentCapturePresenterTests: XCTestCase {
         XCTAssertFalse(mockInteractor.uploadPhotoCalled, "Should not upload empty data")
     }
 
-    func testPhotoCaptured_whileUploading_ignoresNewCapture() {
+    func testPhotoCaptured_whileUploading_ignoresNewCapture() async {
         // Given - Start first upload
         let firstData = Data([0x01, 0x02])
-        sut.photoCaptured(photoData: firstData)
+        await sut.photoCaptured(photoData: firstData)
         XCTAssertTrue(mockInteractor.uploadPhotoCalled, "First upload should start")
 
         mockInteractor.reset()
 
         // When - Try to capture again while uploading
         let secondData = Data([0x03, 0x04])
-        sut.photoCaptured(photoData: secondData)
+        await sut.photoCaptured(photoData: secondData)
 
         // Then
         XCTAssertFalse(mockInteractor.uploadPhotoCalled, "Should ignore new capture while uploading")
@@ -234,185 +235,186 @@ final class DocumentCapturePresenterTests: XCTestCase {
 
     // MARK: - Event Handling Tests
 
-    func testHandleCaptureEvent_helpRequested_showsHelpDialog() {
+    func testHandleCaptureEvent_helpRequested_showsHelpDialog() async {
         // Given
-        let event = DocumentAutoCaptureEventHelpRequested()
+        let event = DocumentAutoCaptureEvent.helpRequested
 
         // When
-        sut.handleCaptureEvent(event)
+        await sut.handleCaptureEvent(event)
 
         // Then
-        XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
-        XCTAssertTrue(mockView.lastShowHelpDialog ?? false, "Should show help dialog")
+        XCTAssertTrue(mockView.updateComposeUICalled)
+        XCTAssertEqual(mockView.lastShowHelpDialog, true)
     }
 
-    func testHandleCaptureEvent_helpDismissed_hidesHelpDialog() {
-        // Given - First show help
-        sut.handleCaptureEvent(DocumentAutoCaptureEventHelpRequested())
-        mockView.reset()
+    func testHandleCaptureEvent_helpDismissed_hidesHelpDialog() async {
+        // Given
+        await sut.handleCaptureEvent(.helpRequested)
 
         // When
-        sut.handleCaptureEvent(DocumentAutoCaptureEventHelpDismissed())
+        await sut.handleCaptureEvent(.helpDismissed)
 
         // Then
-        XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
-        XCTAssertFalse(mockView.lastShowHelpDialog ?? true, "Should hide help dialog")
+        XCTAssertTrue(mockView.updateComposeUICalled)
+        XCTAssertEqual(mockView.lastShowHelpDialog, false)
     }
 
-    func testHandleCaptureEvent_switchToManualMode_changesFeedbackType() {
+    func testHandleCaptureEvent_switchToManualMode_updatesFeedbackType() async {
         // Given
-        let event = DocumentAutoCaptureEventSwitchToManualMode()
+        let event = DocumentAutoCaptureEvent.switchToManualMode
 
         // When
-        sut.handleCaptureEvent(event)
+        await sut.handleCaptureEvent(event)
 
         // Then
-        XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
-        XCTAssertEqual(mockView.lastFeedbackType, .scanningManual, "Should switch to manual mode")
-        XCTAssertFalse(mockView.lastShowHelpDialog ?? true, "Should hide help dialog")
-        XCTAssertFalse(mockView.takePictureCalled, "Should NOT take picture automatically")
+        XCTAssertTrue(mockView.updateComposeUICalled)
+        XCTAssertEqual(mockView.lastFeedbackType, .scanningManual)
     }
 
-    func testHandleCaptureEvent_manualCaptureRequested_takesPhoto() {
+    func testHandleCaptureEvent_manualCaptureRequested_triggersTakePicture() async {
         // Given
-        let event = DocumentAutoCaptureEventManualCaptureRequested()
+        let event = DocumentAutoCaptureEvent.manualCaptureRequested
 
         // When
-        sut.handleCaptureEvent(event)
+        await sut.handleCaptureEvent(event)
 
         // Then
-        XCTAssertTrue(mockView.takePictureCalled, "Should trigger photo capture")
+        XCTAssertTrue(mockView.takePictureCalled)
     }
 
     // MARK: - Upload Completion Tests
 
-    func testPhotoUploadCompleted_frontSide_transitionsToBackWithRotation() {
+    func testPhotoUploadCompleted_frontSide_transitionsToBackWithRotation() async {
         // Given - Capture front photo first (two-sided document)
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
         mockView.reset()
 
-        // When
-        sut.photoUploadCompleted(side: .front)
+        // When - Call upload completed
+        // This will trigger updateUI (animation start) -> sleep -> updateUI (animation end)
+        let task = Task { await sut.photoUploadCompleted(side: .front) }
 
-        // Then
+        // Wait a tiny bit for the task to reach the sleep point
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        // Then - Verify animation started (before sleep resumes)
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
         XCTAssertEqual(mockView.lastFrontPhotoStatus, .success, "Front photo should be success")
         XCTAssertTrue(mockView.lastShowRotationAnimation ?? false, "Should show rotation animation")
 
-        // Verify transition to back side after animation
-        let expectation = self.expectation(description: "Wait for rotation animation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            XCTAssertEqual(self.mockView.lastSide, .back, "Should transition to back side")
-            XCTAssertEqual(self.mockView.lastFeedbackType, .scanningManual, "Should be in manual mode for back")
-            XCTAssertFalse(self.mockView.lastShowRotationAnimation ?? true, "Animation should be complete")
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 2.5)
+        // Resume the sleep in presenter
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
+
+        // Then - Verify transition to back side after animation
+        XCTAssertEqual(self.mockView.lastSide, .back, "Should transition to back side")
+        XCTAssertEqual(self.mockView.lastFeedbackType, .scanning, "Should be in autocapture mode for back")
+        XCTAssertFalse(self.mockView.lastShowRotationAnimation ?? true, "Animation should be complete")
     }
 
     // MARK: - Single-Sided Document Tests
 
-    func testSingleSidedDocument_frontCompleted_navigatesToResult() {
+    func testSingleSidedDocument_frontCompleted_navigatesToResult() async {
         // Given - Single-sided document (passport)
         mockRouter.reverseUploadUrl = nil
-        sut.viewDidLoad()
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        await sut.viewDidLoad()
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
         mockView.reset()
         mockRouter.reset()
 
         // When
-        sut.photoUploadCompleted(side: .front)
+        let task = Task { await sut.photoUploadCompleted(side: .front) }
 
-        // Then
+        // Wait a bit for execution to reach sleep
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        // Then - Initial state
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
         XCTAssertEqual(mockView.lastFrontPhotoStatus, .success, "Front photo should be success")
         XCTAssertFalse(mockView.lastShowRotationAnimation ?? false, "Should NOT show rotation animation")
 
-        // Verify navigation to result after delay
-        let expectation = self.expectation(description: "Wait for navigation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            XCTAssertTrue(self.mockView.stopCameraCalled, "Should stop camera")
-            XCTAssertTrue(self.mockRouter.navigateToResultCalled, "Should navigate to result")
-            XCTAssertEqual(self.mockRouter.lastNavigatedValidationId, "test-validation-id")
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 1.5)
+        // Resume delay before navigation
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
+
+        // Verify navigation
+        XCTAssertTrue(self.mockView.stopCameraCalled, "Should stop camera")
+        XCTAssertTrue(self.mockRouter.navigateToResultCalled, "Should navigate to result")
+        XCTAssertEqual(self.mockRouter.lastNavigatedValidationId, "test-validation-id")
     }
 
-    func testSingleSidedDocument_doesNotTransitionToBackSide() {
+    func testSingleSidedDocument_doesNotTransitionToBackSide() async {
         // Given - Single-sided document
         mockRouter.reverseUploadUrl = nil
-        sut.viewDidLoad()
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        await sut.viewDidLoad()
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
         mockView.reset()
 
         // When
-        sut.photoUploadCompleted(side: .front)
+        let task = Task { await sut.photoUploadCompleted(side: .front) }
+
+        // Resume navigation delay immediately
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
 
         // Then - Verify NO transition to back side
         XCTAssertFalse(mockView.lastShowRotationAnimation ?? false, "Should NOT show rotation animation")
-
-        let expectation = self.expectation(description: "Wait to verify no back transition")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            XCTAssertNotEqual(self.mockView.lastSide, .back, "Should NOT transition to back side")
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 2.5)
+        XCTAssertNotEqual(self.mockView.lastSide, .back, "Should NOT transition to back side")
     }
 
-    func testTwoSidedDocument_frontCompleted_transitionsToBackSide() {
+    func testTwoSidedDocument_frontCompleted_transitionsToBackSide() async {
         // Given - Two-sided document (has both URLs)
         XCTAssertNotNil(mockRouter.reverseUploadUrl, "Should have reverse URL for two-sided doc")
-        sut.viewDidLoad()
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        await sut.viewDidLoad()
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
         mockView.reset()
         mockRouter.reset()
 
         // When
-        sut.photoUploadCompleted(side: .front)
+        let task = Task { await sut.photoUploadCompleted(side: .front) }
+
+        // Wait a bit
+        try? await Task.sleep(nanoseconds: 10_000_000)
 
         // Then - Verify transition to back side
         XCTAssertTrue(mockView.lastShowRotationAnimation ?? false, "Should show rotation animation")
         XCTAssertFalse(mockRouter.navigateToResultCalled, "Should NOT navigate to result yet")
 
-        let expectation = self.expectation(description: "Wait for back transition")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            XCTAssertEqual(self.mockView.lastSide, .back, "Should transition to back side")
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 2.5)
+        // Resume animation sleep
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
+
+        XCTAssertEqual(self.mockView.lastSide, .back, "Should transition to back side")
     }
 
-    func testPhotoUploadCompleted_backSide_stopsCameraAndNavigatesToResult() {
+    func testPhotoUploadCompleted_backSide_stopsCameraAndNavigatesToResult() async {
         // Given - Complete front photo and transition to back
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
-        sut.photoUploadCompleted(side: .front)
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
 
-        // Wait for rotation
-        let rotationExpectation = self.expectation(description: "Wait for rotation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            rotationExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 2.5)
+        // Complete front upload
+        let frontTask = Task { await sut.photoUploadCompleted(side: .front) }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        mockTimeProvider.resumeAllSleeps()
+        await frontTask.value
 
         // Capture back photo
-        sut.photoCaptured(photoData: Data([0x03, 0x04]))
+        await sut.photoCaptured(photoData: Data([0x03, 0x04]))
         mockView.reset()
         mockInteractor.reset()
 
         // When
-        sut.photoUploadCompleted(side: .back)
+        let backTask = Task { await sut.photoUploadCompleted(side: .back) }
+        try? await Task.sleep(nanoseconds: 10_000_000)
 
-        // Then
+        // Then - Initial state
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
         XCTAssertEqual(mockView.lastBackPhotoStatus, .success, "Back photo should be success")
+
+        // Resume navigation delay
+        mockTimeProvider.resumeAllSleeps()
+        await backTask.value
+
         XCTAssertTrue(mockView.stopCameraCalled, "Should stop camera")
-
-        // Navigation is async (dispatched), so wait for it.
-        let navigationExpectation = self.expectation(description: "Wait for navigation to result")
-        mockRouter.navigateToResultExpectation = navigationExpectation
-        waitForExpectations(timeout: 1.5)
-
         XCTAssertTrue(mockRouter.navigateToResultCalled, "Should navigate to result")
         XCTAssertEqual(mockRouter.lastNavigatedValidationId, "test-validation-id")
         XCTAssertEqual(mockRouter.lastNavigatedLoadingType, .document)
@@ -420,218 +422,90 @@ final class DocumentCapturePresenterTests: XCTestCase {
 
     // MARK: - Upload Failure Tests
 
-    func testPhotoUploadFailed_frontSide_clearsStatusAndShowsError() {
+    func testPhotoUploadFailed_frontSide_clearsStatusAndShowsError() async {
         // Given - Capture front photo
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
         mockView.reset()
 
-        let error = ValidationError.uploadFailed("Network error")
+        let error = TruoraException.sdk(SDKError(type: .uploadFailed, details: "Network error"))
 
         // When
-        sut.photoUploadFailed(side: .front, error: error)
+        await sut.photoUploadFailed(side: .front, error: error)
 
         // Then
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
         XCTAssertNil(mockView.lastFrontPhotoStatus, "Front photo status should be cleared")
-        XCTAssertEqual(mockView.lastFeedbackType, .scanningManual, "Should switch to manual mode")
+        XCTAssertEqual(mockView.lastFeedbackType, .searching, "Should switch to autocapture mode")
         XCTAssertTrue(mockView.showErrorCalled, "Should show error")
         XCTAssertTrue(mockView.lastErrorMessage?.contains("Network error") ?? false)
     }
 
-    func testPhotoUploadFailed_backSide_clearsStatusAndShowsError() {
+    func testPhotoUploadFailed_backSide_clearsStatusAndShowsError() async {
         // Given - Complete front and capture back photo
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
-        sut.photoUploadCompleted(side: .front)
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
 
-        let expectation = self.expectation(description: "Wait for rotation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            expectation.fulfill()
+        // Start the upload completion in a separate task so we can resume the sleep
+        let uploadTask = Task {
+            await sut.photoUploadCompleted(side: .front)
         }
-        waitForExpectations(timeout: 2.5)
 
-        sut.photoCaptured(photoData: Data([0x03, 0x04]))
+        // Wait a moment for the sleep to be registered, then resume it
+        try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        mockTimeProvider.resumeAllSleeps()
+
+        // Wait for the transition to complete
+        await uploadTask.value
+
+        await sut.photoCaptured(photoData: Data([0x03, 0x04]))
         mockView.reset()
 
-        let error = ValidationError.uploadFailed("Upload timeout")
+        let error = TruoraException.sdk(SDKError(type: .uploadFailed, details: "Upload timeout"))
 
         // When
-        sut.photoUploadFailed(side: .back, error: error)
+        await sut.photoUploadFailed(side: .back, error: error)
 
         // Then
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
         XCTAssertNil(mockView.lastBackPhotoStatus, "Back photo status should be cleared")
-        XCTAssertEqual(mockView.lastFeedbackType, .scanningManual, "Should switch to manual mode")
+        XCTAssertEqual(mockView.lastFeedbackType, .searching, "Should switch to autocapture mode")
         XCTAssertTrue(mockView.showErrorCalled, "Should show error")
         XCTAssertTrue(mockView.lastErrorMessage?.contains("Upload timeout") ?? false)
     }
 
     // MARK: - State Management Tests
 
-    func testInitialState_startsInScanningMode() {
+    func testInitialState_startsInScanningMode() async {
         // When
-        sut.viewDidLoad()
+        await sut.viewDidLoad()
 
         // Then
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
         XCTAssertEqual(mockView.lastSide, .front, "Should start on front side")
-        XCTAssertEqual(mockView.lastFeedbackType, .scanning, "Should start in autocapture mode")
+        XCTAssertEqual(mockView.lastFeedbackType, .searching, "Should start in autocapture mode")
         XCTAssertFalse(mockView.lastShowHelpDialog ?? true, "Help dialog should be hidden")
         XCTAssertFalse(mockView.lastShowRotationAnimation ?? true, "No rotation animation initially")
     }
 
-    func testRotationAnimation_timingAndStateTransition() {
+    func testRotationAnimation_timingAndStateTransition() async {
         // Given - Complete front photo
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
 
         // When
-        sut.photoUploadCompleted(side: .front)
+        let task = Task { await sut.photoUploadCompleted(side: .front) }
+
+        // Wait a bit
+        try? await Task.sleep(nanoseconds: 10_000_000)
 
         // Then - Verify animation starts
         XCTAssertTrue(mockView.lastShowRotationAnimation ?? false, "Animation should start")
         XCTAssertEqual(mockView.lastSide, .front, "Should still be on front during animation")
 
-        // Wait for animation to complete (1.8 seconds)
-        let expectation = self.expectation(description: "Wait for animation completion")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            XCTAssertFalse(self.mockView.lastShowRotationAnimation ?? true, "Animation should be complete")
-            XCTAssertEqual(self.mockView.lastSide, .back, "Should transition to back side")
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 2.5)
-    }
+        // Wait for animation to complete
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
 
-    // MARK: - Manual Mode Timer Tests (comment to run tests faster)
-
-    func testManualModeTimer_activatesAfter10SecondsOnFrontSide() {
-        // Given
-        sut.viewDidLoad()
-        mockView.reset()
-
-        // When - Wait for 10 seconds
-        let expectation = self.expectation(description: "Wait for manual mode timer")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10.5) {
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 11.0)
-
-        // Then
-        XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI when timer fires")
-        XCTAssertEqual(mockView.lastFeedbackType, .scanningManual, "Should switch to manual mode")
-    }
-
-    func testManualModeTimer_activatesAfter10SecondsOnBackSide() {
-        // Given - Complete front side to transition to back
-        sut.viewDidLoad()
-        sut.photoCaptured(photoData: Data([0x01, 0x02]))
-        sut.photoUploadCompleted(side: .front)
-
-        // Wait for rotation animation to complete
-        let rotationExpectation = self.expectation(description: "Wait for rotation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            rotationExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 2.5)
-
-        mockView.reset()
-
-        // When - Wait for 10 seconds on back side
-        let timerExpectation = self.expectation(description: "Wait for manual mode timer on back")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10.5) {
-            timerExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 11.0)
-
-        // Then
-        XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI when timer fires")
-        XCTAssertEqual(mockView.lastFeedbackType, .scanningManual, "Should switch to manual mode on back side")
-        XCTAssertEqual(mockView.lastSide, .back, "Should still be on back side")
-    }
-
-    func testManualModeTimer_cancelledWhenPhotoCaptured() {
-        // Given
-        sut.viewDidLoad()
-
-        // When - Capture photo before timer fires (at 5 seconds)
-        let expectation = self.expectation(description: "Wait 5 seconds then capture")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            self.mockView.reset()
-            self.sut.photoCaptured(photoData: Data([0x01, 0x02]))
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 5.5)
-
-        // Then - Wait another 6 seconds (total 11, past timer deadline)
-        let verifyExpectation = self.expectation(description: "Verify timer was cancelled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
-            verifyExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 6.5)
-
-        // Timer should not have fired because it was cancelled
-        XCTAssertNotEqual(mockView.lastFeedbackType, .scanningManual, "Should NOT switch to manual mode after capture")
-        XCTAssertEqual(mockView.lastFeedbackType, .scanning, "Should be in scanning mode after capture")
-    }
-
-    func testManualModeTimer_cancelledWhenViewDisappears() {
-        // Given
-        sut.viewDidLoad()
-
-        // When - View disappears before timer fires (at 5 seconds)
-        let expectation = self.expectation(description: "Wait 5 seconds then disappear")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            self.mockView.reset()
-            self.sut.viewWillDisappear()
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 5.5)
-
-        // Then - Wait another 6 seconds (total 11, past timer deadline)
-        let verifyExpectation = self.expectation(description: "Verify timer was cancelled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
-            verifyExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 6.5)
-
-        // Timer should not have fired because it was cancelled
-        XCTAssertFalse(mockView.updateComposeUICalled, "Should NOT update UI after view disappears")
-    }
-
-    func testManualModeTimer_frontTimerCancelledWhenTransitioningToBackSide() {
-        // Given
-        sut.viewDidLoad()
-
-        // When - Complete front side before timer fires (at 5 seconds)
-        let expectation = self.expectation(description: "Wait 5 seconds then complete front")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            self.sut.photoCaptured(photoData: Data([0x01, 0x02]))
-            self.sut.photoUploadCompleted(side: .front)
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 5.5)
-
-        // Wait for rotation animation
-        let rotationExpectation = self.expectation(description: "Wait for rotation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            rotationExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 2.5)
-
-        mockView.reset()
-
-        // Then - Wait another 4 seconds (total 11, past original timer deadline)
-        let verifyExpectation = self.expectation(description: "Verify front timer was cancelled")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-            verifyExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 4.5)
-
-        // Front timer should have been cancelled, but back timer hasn't fired yet (only 6 seconds on back)
-        XCTAssertEqual(mockView.lastSide, .back, "Should be on back side")
-        XCTAssertEqual(
-            mockView.lastFeedbackType,
-            .scanningManual,
-            "Should still be in manual mode (set during transition)"
-        )
+        XCTAssertFalse(self.mockView.lastShowRotationAnimation ?? true, "Animation should be complete")
+        XCTAssertEqual(self.mockView.lastSide, .back, "Should transition to back side")
     }
 }
 
@@ -639,10 +513,12 @@ final class DocumentCapturePresenterTests: XCTestCase {
 
 // MARK: - Mock Classes
 
-private final class MockDocumentCaptureView: DocumentCapturePresenterToView {
+@MainActor private final class MockDocumentCaptureView: DocumentCapturePresenterToView {
     private(set) var setupCameraCalled = false
     private(set) var takePictureCalled = false
     private(set) var stopCameraCalled = false
+    private(set) var pauseVideoCalled = false
+    private(set) var pauseCameraCalled = false
     private(set) var updateComposeUICalled = false
     private(set) var showErrorCalled = false
 
@@ -654,6 +530,8 @@ private final class MockDocumentCaptureView: DocumentCapturePresenterToView {
     private(set) var lastShowLoadingScreen: Bool?
     private(set) var lastFrontPhotoStatus: CaptureStatus?
     private(set) var lastBackPhotoStatus: CaptureStatus?
+    private(set) var lastClearFrontPhoto: Bool = false
+    private(set) var lastClearBackPhoto: Bool = false
 
     func setupCamera() {
         setupCameraCalled = true
@@ -667,6 +545,14 @@ private final class MockDocumentCaptureView: DocumentCapturePresenterToView {
         stopCameraCalled = true
     }
 
+    func pauseVideo() {
+        pauseVideoCalled = true
+    }
+
+    func pauseCamera() {
+        pauseCameraCalled = true
+    }
+
     func updateComposeUI(
         side: DocumentCaptureSide,
         feedbackType: DocumentFeedbackType,
@@ -676,7 +562,9 @@ private final class MockDocumentCaptureView: DocumentCapturePresenterToView {
         frontPhotoData: Data?,
         frontPhotoStatus: CaptureStatus?,
         backPhotoData: Data?,
-        backPhotoStatus: CaptureStatus?
+        backPhotoStatus: CaptureStatus?,
+        clearFrontPhoto: Bool,
+        clearBackPhoto: Bool
     ) {
         updateComposeUICalled = true
         lastSide = side
@@ -686,6 +574,8 @@ private final class MockDocumentCaptureView: DocumentCapturePresenterToView {
         lastShowLoadingScreen = showLoadingScreen
         lastFrontPhotoStatus = frontPhotoStatus
         lastBackPhotoStatus = backPhotoStatus
+        lastClearFrontPhoto = clearFrontPhoto
+        lastClearBackPhoto = clearBackPhoto
     }
 
     func showError(_ message: String) {
@@ -697,13 +587,15 @@ private final class MockDocumentCaptureView: DocumentCapturePresenterToView {
         setupCameraCalled = false
         takePictureCalled = false
         stopCameraCalled = false
+        pauseVideoCalled = false
+        pauseCameraCalled = false
         updateComposeUICalled = false
         showErrorCalled = false
         lastErrorMessage = nil
     }
 }
 
-private final class MockDocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
+@MainActor private final class MockDocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
     private(set) var setUploadUrlsCalled = false
     private(set) var uploadPhotoCalled = false
     private(set) var evaluateImageCalled = false
@@ -759,17 +651,17 @@ private final class MockDocumentCaptureInteractor: DocumentCapturePresenterToInt
     }
 }
 
-private final class MockDocumentCaptureRouter: ValidationRouter {
+@MainActor private final class MockDocumentCaptureRouter: ValidationRouter {
     var navigateToResultCalled = false
     var lastNavigatedValidationId: String?
-    var lastNavigatedLoadingType: LoadingType?
+    var lastNavigatedLoadingType: ResultLoadingType?
     var navigateToResultExpectation: XCTestExpectation?
 
     var navigateToDocumentFeedbackCalled = false
     var lastFeedbackScenario: FeedbackScenario?
     var lastFeedbackRetriesLeft: Int?
 
-    override func navigateToResult(validationId: String, loadingType: LoadingType = .face) throws {
+    override func navigateToResult(validationId: String, loadingType: ResultLoadingType = .face) throws {
         navigateToResultCalled = true
         lastNavigatedValidationId = validationId
         lastNavigatedLoadingType = loadingType

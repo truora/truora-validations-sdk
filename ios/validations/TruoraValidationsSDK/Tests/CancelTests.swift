@@ -8,7 +8,7 @@
 import XCTest
 @testable import TruoraValidationsSDK
 
-final class CancelTests: XCTestCase {
+@MainActor final class CancelTests: XCTestCase {
     func testInitialization() {
         let reason = "User pressed back button"
         let currentValidation = "face-recognition"
@@ -52,7 +52,7 @@ final class CancelTests: XCTestCase {
             "current_view": "PassiveCaptureView"
         }
         """
-        let data = json.data(using: .utf8)!
+        let data = try XCTUnwrap(json.data(using: .utf8))
 
         let decoder = JSONDecoder()
         let cancel = try decoder.decode(Cancel.self, from: data)
