@@ -26,6 +26,8 @@ import Foundation
 public class Document {
     private var _country: String = ""
     private var _documentType: String = ""
+    private var _allowedCountries: String = ""
+    private var _allowedDocumentTypes: String = ""
     private var _waitForResults: Bool = false
     private var _useAutocapture: Bool = true
     private var _didExplicitlyEnableAutocapture: Bool = false
@@ -34,12 +36,78 @@ public class Document {
 
     public required init() {}
 
+    /// The country code for pre-selection (single value only).
     public var country: String {
         _country
     }
 
+    /// The document type for pre-selection (single value only).
     public var documentType: String {
         _documentType
+    }
+
+    /// The allowed countries string (comma-separated for multiple values).
+    public var allowedCountries: String {
+        _allowedCountries
+    }
+
+    /// The allowed document types string (comma-separated for multiple values).
+    public var allowedDocumentTypes: String {
+        _allowedDocumentTypes
+    }
+
+    /// Returns the list of allowed country codes parsed from the allowedCountries string.
+    var allowedCountriesList: [String] {
+        guard !_allowedCountries.isEmpty else { return [] }
+        return _allowedCountries.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Returns the list of allowed document types parsed from the allowedDocumentTypes string.
+    var allowedDocumentTypesList: [String] {
+        guard !_allowedDocumentTypes.isEmpty else { return [] }
+        return _allowedDocumentTypes.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Returns true if exactly one country is configured in allowedCountries.
+    var hasSingleAllowedCountry: Bool {
+        allowedCountriesList.count == 1
+    }
+
+    /// Returns true if exactly one document type is configured in allowedDocumentTypes.
+    var hasSingleAllowedDocumentType: Bool {
+        allowedDocumentTypesList.count == 1
+    }
+
+    /// Returns true if a country is configured for pre-selection (legacy field).
+    var hasSingleCountry: Bool {
+        !_country.isEmpty
+    }
+
+    /// Returns true if a document type is configured for pre-selection (legacy field).
+    var hasSingleDocumentType: Bool {
+        !_documentType.isEmpty
+    }
+
+    /// Returns the effective country for pre-selection, prioritizing allowedCountries over country.
+    var effectivePreselectedCountry: String? {
+        if hasSingleAllowedCountry {
+            return allowedCountriesList.first
+        }
+        if hasSingleCountry {
+            return _country
+        }
+        return nil
+    }
+
+    /// Returns the effective document type for pre-selection, prioritizing allowedDocumentTypes over documentType.
+    var effectivePreselectedDocumentType: String? {
+        if hasSingleAllowedDocumentType {
+            return allowedDocumentTypesList.first
+        }
+        if hasSingleDocumentType {
+            return _documentType
+        }
+        return nil
     }
 
     public var waitForResults: Bool {
@@ -65,10 +133,14 @@ public class Document {
         _finishViewConfig
     }
 
-    /// Sets the country code for document validation.
+    /// Sets the country code for pre-selection and locking.
     ///
-    /// - Note: If not set, a document selection view will be shown to collect this from the user.
-    /// - Parameter country: ISO 3166-1 alpha-2 country code (e.g., "PE", "CO", "MX").
+    /// When set, the country is pre-selected and the user cannot change it.
+    /// Use ``setAllowedCountries(_:)`` to filter available countries without locking.
+    ///
+    /// - Note: If not set, a document selection view will show countries based on
+    ///   ``setAllowedCountries(_:)`` or all supported countries if that is also not set.
+    /// - Parameter country: ISO 3166-1 alpha-2 country code (e.g., "PE", "CO").
     /// - Returns: This Document for method chaining
     @discardableResult
     public func setCountry(_ country: String) -> Document {
@@ -76,16 +148,19 @@ public class Document {
         return self
     }
 
-    /// Sets the document type for validation.
+    /// Sets the document type for pre-selection and locking.
+    ///
+    /// When set, the document type is pre-selected and the user cannot change it.
+    /// Use ``setAllowedDocumentTypes(_:)`` to filter available types without locking.
     ///
     /// When `"passport"` is set, autocapture is silently disabled because the ML model
     /// does not work reliably on passports. If the developer also called
     /// ``useAutocapture(true)``, ``ValidationConfig/setValidation(_:)`` will throw
     /// a catchable ``TruoraException`` at start time.
     ///
-    /// - Note: If not set, a document selection view will be shown to collect this from the user.
-    /// - Parameter documentType: The document type identifier (e.g., "national-id", "passport",
-    ///   "driver-license").
+    /// - Note: If not set, a document selection view will show types based on
+    ///   ``setAllowedDocumentTypes(_:)`` or all supported types for the country if that is also not set.
+    /// - Parameter documentType: The document type identifier (e.g., "national-id", "passport").
     /// - Returns: This Document for method chaining
     @discardableResult
     public func setDocumentType(_ documentType: String) -> Document {
@@ -93,6 +168,35 @@ public class Document {
         if documentType == NativeDocumentType.passport.rawValue {
             _useAutocapture = false
         }
+        return self
+    }
+
+    /// Sets the allowed country codes for the document selection picker.
+    ///
+    /// When set, only these countries will be shown in the picker.
+    /// The user can select any of the allowed countries.
+    /// Use ``setCountry(_:)`` to pre-select and lock a specific country.
+    ///
+    /// - Parameter countries: Comma-separated ISO 3166-1 alpha-2 country codes (e.g., "PE,CO,MX").
+    /// - Returns: This Document for method chaining
+    @discardableResult
+    public func setAllowedCountries(_ countries: String) -> Document {
+        _allowedCountries = countries
+        return self
+    }
+
+    /// Sets the allowed document types for the document selection picker.
+    ///
+    /// When set, only these document types will be shown in the picker.
+    /// The user can select any of the allowed types.
+    /// Use ``setDocumentType(_:)`` to pre-select and lock a specific type.
+    ///
+    /// - Parameter documentTypes: Comma-separated document type identifiers
+    ///   (e.g., "national-id,passport,foreign-id").
+    /// - Returns: This Document for method chaining
+    @discardableResult
+    public func setAllowedDocumentTypes(_ documentTypes: String) -> Document {
+        _allowedDocumentTypes = documentTypes
         return self
     }
 

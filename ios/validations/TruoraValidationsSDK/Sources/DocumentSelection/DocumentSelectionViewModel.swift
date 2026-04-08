@@ -42,7 +42,19 @@ import Foundation
     }
 
     var availableDocuments: [NativeDocumentType] {
-        selectedCountry?.documentTypes ?? []
+        guard let country = selectedCountry else { return [] }
+
+        let countryDocTypes = country.documentTypes
+        let documentConfig = ValidationConfig.shared.documentConfig
+        let allowedDocTypes = documentConfig.allowedDocumentTypesList
+
+        if allowedDocTypes.isEmpty {
+            return countryDocTypes
+        }
+
+        return countryDocTypes.filter { docType in
+            allowedDocTypes.contains { $0.lowercased() == docType.rawValue }
+        }
     }
 }
 

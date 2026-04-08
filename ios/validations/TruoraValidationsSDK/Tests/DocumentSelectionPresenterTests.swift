@@ -28,6 +28,7 @@ import XCTest
         mockView = nil
         mockInteractor = nil
         mockRouter = nil
+        try? ValidationConfig.shared.setValidation(.document(Document()))
         super.tearDown()
     }
 
@@ -169,6 +170,213 @@ import XCTest
         await sut.cancelTapped()
 
         XCTAssertTrue(mockRouter.handleCancellationCalled)
+    }
+
+    // MARK: - Single Country Preselection Tests
+
+    func testViewDidLoad_withSingleCountry_preselectsAndLocksCountry() async throws {
+        let config = Document().setCountry("PE")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertTrue(mockView.setCountryLockedCalled)
+        XCTAssertTrue(mockView.lastIsCountryLocked ?? false)
+        XCTAssertEqual(mockView.lastSelectedCountry, .pe)
+    }
+
+    func testViewDidLoad_withAllowedCountries_doesNotPreselectOrLock() async throws {
+        let config = Document().setAllowedCountries("PE,CO,MX")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertNil(mockView.lastSelectedCountry)
+        XCTAssertFalse(mockView.setCountryLockedCalled)
+    }
+
+    // MARK: - Single Document Type Preselection Tests
+
+    func testViewDidLoad_withSingleDocumentType_preselectsAndLocksDocumentType() async throws {
+        let config = Document()
+            .setCountry("PE")
+            .setDocumentType("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertTrue(mockView.setDocumentLockedCalled)
+        XCTAssertTrue(mockView.lastIsDocumentLocked ?? false)
+        XCTAssertEqual(mockView.lastSelectedDocument, .nationalId)
+    }
+
+    func testViewDidLoad_withAllowedDocumentTypes_doesNotPreselectOrLock() async throws {
+        let config = Document()
+            .setCountry("PE")
+            .setAllowedDocumentTypes("national-id,foreign-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertNil(mockView.lastSelectedDocument)
+    }
+
+    func testCountrySelected_withSingleAllowedDocumentType_preselectsAndLocksDocumentType() async throws {
+        let config = Document()
+            .setAllowedDocumentTypes("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+        await sut.viewDidLoad()
+
+        await sut.countrySelected(.pe)
+
+        XCTAssertTrue(mockView.setDocumentLockedCalled)
+        XCTAssertTrue(mockView.lastIsDocumentLocked ?? false)
+        XCTAssertEqual(mockView.lastSelectedDocument, .nationalId)
+    }
+
+    func testCountrySelected_withMultipleAllowedDocumentTypes_resetsDocumentLock() async throws {
+        let config = Document()
+            .setAllowedDocumentTypes("national-id,foreign-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+        await sut.viewDidLoad()
+
+        await sut.countrySelected(.pe)
+
+        XCTAssertFalse(mockView.lastIsDocumentLocked ?? true)
+    }
+
+    // MARK: - Priority Tests (allowed fields over legacy fields)
+
+    func testViewDidLoad_withSingleAllowedCountry_hasHigherPriorityThanCountry() async throws {
+        let config = Document()
+            .setCountry("MX")
+            .setAllowedCountries("CO")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertTrue(mockView.setCountryLockedCalled)
+        XCTAssertTrue(mockView.lastIsCountryLocked ?? false)
+        XCTAssertEqual(mockView.lastSelectedCountry, .co, "allowedCountries should have priority over country")
+    }
+
+    func testViewDidLoad_withSingleAllowedDocumentType_hasHigherPriorityThanDocumentType() async throws {
+        let config = Document()
+            .setCountry("PE")
+            .setDocumentType("passport")
+            .setAllowedDocumentTypes("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertTrue(mockView.setDocumentLockedCalled)
+        XCTAssertTrue(mockView.lastIsDocumentLocked ?? false)
+        XCTAssertEqual(mockView.lastSelectedDocument, .nationalId, "allowedDocumentTypes should have priority over documentType")
+    }
+
+    func testViewDidLoad_withLegacyCountry_worksAsFallback() async throws {
+        let config = Document()
+            .setCountry("PE")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertTrue(mockView.setCountryLockedCalled)
+        XCTAssertTrue(mockView.lastIsCountryLocked ?? false)
+        XCTAssertEqual(mockView.lastSelectedCountry, .pe, "country should work as fallback when allowedCountries is empty")
+    }
+
+    func testViewDidLoad_withLegacyDocumentType_worksAsFallback() async throws {
+        let config = Document()
+            .setCountry("PE")
+            .setDocumentType("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertTrue(mockView.setDocumentLockedCalled)
+        XCTAssertTrue(mockView.lastIsDocumentLocked ?? false)
+        XCTAssertEqual(mockView.lastSelectedDocument, .nationalId, "documentType should work as fallback when allowedDocumentTypes is empty")
     }
 }
 

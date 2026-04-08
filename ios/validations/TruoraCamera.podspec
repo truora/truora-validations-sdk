@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = "TruoraCamera"
-  s.version          = "1.2.5"
+  s.version          = "1.2.6-beta.1"
   s.summary          = "Truora camera module to capture input for biometric validations"
   s.description      = <<-DESC
 TruoraCamera is a camera module based on AVFoundation, with facial detection (Vision/CoreML)
@@ -11,7 +11,7 @@ DESC
   s.author           = { "Truora" => "truora-apps@truora.com" }
   s.platform         = :ios, "13.0"
   s.swift_version    = "5.9"
-  s.static_framework = true
+
   s.source           = { :git => "https://bitbucket.org/truora/truora-sdks.git", :tag => s.version.to_s }
 
   s.source_files       = [

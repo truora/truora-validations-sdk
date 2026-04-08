@@ -198,4 +198,199 @@ import XCTest
         XCTAssertTrue(sut.waitForResults)
         XCTAssertEqual(sut.timeout, 90)
     }
+
+    // MARK: - setCountry Tests (Pre-selection)
+
+    func testCountryDefaultIsEmpty() {
+        XCTAssertTrue(sut.country.isEmpty, "Country should be empty by default")
+        XCTAssertFalse(sut.hasSingleCountry)
+    }
+
+    func testSetCountry_setsValueAndHasSingleCountry() {
+        _ = sut.setCountry("PE")
+
+        XCTAssertEqual(sut.country, "PE")
+        XCTAssertTrue(sut.hasSingleCountry)
+    }
+
+    // MARK: - setDocumentType Tests (Pre-selection)
+
+    func testDocumentTypeDefaultIsEmpty() {
+        XCTAssertTrue(sut.documentType.isEmpty, "Document type should be empty by default")
+        XCTAssertFalse(sut.hasSingleDocumentType)
+    }
+
+    func testSetDocumentType_setsValueAndHasSingleDocumentType() {
+        _ = sut.setDocumentType("national-id")
+
+        XCTAssertEqual(sut.documentType, "national-id")
+        XCTAssertTrue(sut.hasSingleDocumentType)
+    }
+
+    // MARK: - Allowed Countries List Tests
+
+    func testAllowedCountriesListDefaultIsEmpty() {
+        XCTAssertTrue(sut.allowedCountriesList.isEmpty, "Allowed countries list should be empty by default")
+    }
+
+    func testSetAllowedCountriesWithSingleValue() {
+        _ = sut.setAllowedCountries("PE")
+
+        XCTAssertEqual(sut.allowedCountries, "PE")
+        XCTAssertEqual(sut.allowedCountriesList, ["PE"])
+    }
+
+    func testSetAllowedCountriesWithMultipleValues() {
+        _ = sut.setAllowedCountries("PE,CO,MX")
+
+        XCTAssertEqual(sut.allowedCountries, "PE,CO,MX")
+        XCTAssertEqual(sut.allowedCountriesList, ["PE", "CO", "MX"])
+    }
+
+    func testSetAllowedCountriesWithSpaces() {
+        _ = sut.setAllowedCountries("PE, CO, MX")
+
+        XCTAssertEqual(sut.allowedCountriesList, ["PE", "CO", "MX"])
+    }
+
+    // MARK: - Allowed Document Types List Tests
+
+    func testAllowedDocumentTypesListDefaultIsEmpty() {
+        XCTAssertTrue(sut.allowedDocumentTypesList.isEmpty, "Allowed document types list should be empty by default")
+    }
+
+    func testSetAllowedDocumentTypesWithSingleValue() {
+        _ = sut.setAllowedDocumentTypes("national-id")
+
+        XCTAssertEqual(sut.allowedDocumentTypes, "national-id")
+        XCTAssertEqual(sut.allowedDocumentTypesList, ["national-id"])
+    }
+
+    func testSetAllowedDocumentTypesWithMultipleValues() {
+        _ = sut.setAllowedDocumentTypes("national-id,passport,foreign-id")
+
+        XCTAssertEqual(sut.allowedDocumentTypes, "national-id,passport,foreign-id")
+        XCTAssertEqual(sut.allowedDocumentTypesList, ["national-id", "passport", "foreign-id"])
+    }
+
+    func testSetAllowedDocumentTypesWithSpaces() {
+        _ = sut.setAllowedDocumentTypes("national-id, passport, foreign-id")
+
+        XCTAssertEqual(sut.allowedDocumentTypesList, ["national-id", "passport", "foreign-id"])
+    }
+
+    // MARK: - Method Chaining with Allowed Values
+
+    func testMethodChainingWithAllowedValues() {
+        let result = sut
+            .setCountry("PE")
+            .setAllowedCountries("PE,CO,MX")
+            .setDocumentType("national-id")
+            .setAllowedDocumentTypes("national-id,passport")
+            .waitForResults(true)
+
+        XCTAssertTrue(result === sut, "Should support method chaining")
+        XCTAssertEqual(sut.country, "PE")
+        XCTAssertEqual(sut.allowedCountriesList, ["PE", "CO", "MX"])
+        XCTAssertEqual(sut.documentType, "national-id")
+        XCTAssertEqual(sut.allowedDocumentTypesList, ["national-id", "passport"])
+        XCTAssertTrue(sut.waitForResults)
+    }
+
+    func testPreselectionAndFilteringTogether() {
+        _ = sut
+            .setCountry("CO")
+            .setAllowedCountries("CO,MX,PE")
+            .setDocumentType("national-id")
+            .setAllowedDocumentTypes("national-id,foreign-id")
+
+        XCTAssertTrue(sut.hasSingleCountry, "Should have pre-selected country")
+        XCTAssertTrue(sut.hasSingleDocumentType, "Should have pre-selected document type")
+        XCTAssertEqual(sut.allowedCountriesList.count, 3, "Should have 3 allowed countries")
+        XCTAssertEqual(sut.allowedDocumentTypesList.count, 2, "Should have 2 allowed document types")
+    }
+
+    // MARK: - Single Allowed Tests
+
+    func testHasSingleAllowedCountry_withOneValue_returnsTrue() {
+        _ = sut.setAllowedCountries("CO")
+
+        XCTAssertTrue(sut.hasSingleAllowedCountry)
+    }
+
+    func testHasSingleAllowedCountry_withMultipleValues_returnsFalse() {
+        _ = sut.setAllowedCountries("CO,MX")
+
+        XCTAssertFalse(sut.hasSingleAllowedCountry)
+    }
+
+    func testHasSingleAllowedCountry_withEmptyValue_returnsFalse() {
+        XCTAssertFalse(sut.hasSingleAllowedCountry)
+    }
+
+    func testHasSingleAllowedDocumentType_withOneValue_returnsTrue() {
+        _ = sut.setAllowedDocumentTypes("national-id")
+
+        XCTAssertTrue(sut.hasSingleAllowedDocumentType)
+    }
+
+    func testHasSingleAllowedDocumentType_withMultipleValues_returnsFalse() {
+        _ = sut.setAllowedDocumentTypes("national-id,passport")
+
+        XCTAssertFalse(sut.hasSingleAllowedDocumentType)
+    }
+
+    func testHasSingleAllowedDocumentType_withEmptyValue_returnsFalse() {
+        XCTAssertFalse(sut.hasSingleAllowedDocumentType)
+    }
+
+    // MARK: - Effective Preselection Priority Tests
+
+    func testEffectivePreselectedCountry_allowedHasPriority() {
+        _ = sut
+            .setCountry("MX")
+            .setAllowedCountries("CO")
+
+        XCTAssertEqual(sut.effectivePreselectedCountry, "CO", "allowedCountries should have priority")
+    }
+
+    func testEffectivePreselectedCountry_fallsBackToCountry() {
+        _ = sut.setCountry("MX")
+
+        XCTAssertEqual(sut.effectivePreselectedCountry, "MX", "Should fallback to country when allowedCountries is empty")
+    }
+
+    func testEffectivePreselectedCountry_returnsNilWhenMultipleAllowed() {
+        _ = sut.setAllowedCountries("CO,MX")
+
+        XCTAssertNil(sut.effectivePreselectedCountry, "Should return nil when multiple countries allowed")
+    }
+
+    func testEffectivePreselectedCountry_returnsNilWhenBothEmpty() {
+        XCTAssertNil(sut.effectivePreselectedCountry)
+    }
+
+    func testEffectivePreselectedDocumentType_allowedHasPriority() {
+        _ = sut
+            .setDocumentType("passport")
+            .setAllowedDocumentTypes("national-id")
+
+        XCTAssertEqual(sut.effectivePreselectedDocumentType, "national-id", "allowedDocumentTypes should have priority")
+    }
+
+    func testEffectivePreselectedDocumentType_fallsBackToDocumentType() {
+        _ = sut.setDocumentType("passport")
+
+        XCTAssertEqual(sut.effectivePreselectedDocumentType, "passport", "Should fallback to documentType when allowedDocumentTypes is empty")
+    }
+
+    func testEffectivePreselectedDocumentType_returnsNilWhenMultipleAllowed() {
+        _ = sut.setAllowedDocumentTypes("national-id,passport")
+
+        XCTAssertNil(sut.effectivePreselectedDocumentType, "Should return nil when multiple types allowed")
+    }
+
+    func testEffectivePreselectedDocumentType_returnsNilWhenBothEmpty() {
+        XCTAssertNil(sut.effectivePreselectedDocumentType)
+    }
 }

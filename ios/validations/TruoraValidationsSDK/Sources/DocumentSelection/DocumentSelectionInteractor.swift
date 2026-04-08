@@ -26,11 +26,22 @@ final class DocumentSelectionInteractor {
 
 extension DocumentSelectionInteractor: DocumentSelectionPresenterToInteractor {
     func fetchSupportedCountries() {
-        // Supported countries.
-        let countries: [NativeCountry] = [
+        let allCountries: [NativeCountry] = [
             .all, .ar, .bo, .br, .cl, .co, .cr, .ec, .mx, .pe, .sv, .ve
         ]
-        Task { await presenter?.didLoadCountries(countries) }
+
+        let documentConfig = ValidationConfig.shared.documentConfig
+        let allowedCountries = documentConfig.allowedCountriesList
+
+        let filtered: [NativeCountry] = if allowedCountries.isEmpty {
+            allCountries
+        } else {
+            allCountries.filter { country in
+                allowedCountries.contains { $0.lowercased() == country.rawValue }
+            }
+        }
+
+        Task { await presenter?.didLoadCountries(filtered) }
     }
 
     // MARK: - Logging Methods

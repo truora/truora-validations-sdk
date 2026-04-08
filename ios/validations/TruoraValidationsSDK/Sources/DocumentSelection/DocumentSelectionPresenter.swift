@@ -108,28 +108,56 @@ extension DocumentSelectionPresenter: DocumentSelectionViewToPresenter {
 
     private func checkForPreConfiguredValues() async {
         let documentConfig = ValidationConfig.shared.documentConfig
-        let preConfiguredCountry = documentConfig.country
-        let preConfiguredDocument = documentConfig.documentType
 
-        if !preConfiguredCountry.isEmpty,
-           let country = NativeCountry(rawValue: preConfiguredCountry.lowercased()) {
+        // Check for pre-configured country (allowedCountries has priority over country)
+        if let countryCode = documentConfig.effectivePreselectedCountry,
+           let country = NativeCountry(rawValue: countryCode.lowercased()) {
             selectedCountry = country
             await view?.setCountryLocked(true)
         }
 
-        if !preConfiguredDocument.isEmpty,
-           let document = NativeDocumentType(rawValue: preConfiguredDocument.lowercased()) {
+        // Check for pre-configured document type (allowedDocumentTypes has priority over documentType)
+        if let docType = documentConfig.effectivePreselectedDocumentType,
+           let document = NativeDocumentType(rawValue: docType.lowercased()) {
             selectedDocument = document
             await view?.setDocumentLocked(true)
+        } else {
+            await checkForSingleAvailableDocumentType()
         }
 
         await view?.updateSelection(selectedCountry: selectedCountry, selectedDocument: selectedDocument)
+    }
+
+    private func checkForSingleAvailableDocumentType() async {
+        let documentConfig = ValidationConfig.shared.documentConfig
+        let allowedDocTypes = documentConfig.allowedDocumentTypesList
+
+        guard let country = selectedCountry else { return }
+
+        let countryDocTypes = country.documentTypes
+        let availableTypes: [NativeDocumentType] = if allowedDocTypes.isEmpty {
+            countryDocTypes
+        } else {
+            countryDocTypes.filter { docType in
+                allowedDocTypes.contains { $0.lowercased() == docType.rawValue }
+            }
+        }
+
+        if availableTypes.count == 1, let singleType = availableTypes.first {
+            selectedDocument = singleType
+            await view?.setDocumentLocked(true)
+        }
     }
 
     func countrySelected(_ country: NativeCountry) async {
         selectedCountry = country
         // Reset document selection on country change.
         selectedDocument = nil
+        await view?.setDocumentLocked(false)
+
+        // Check if there's only one available document type for the new country
+        await checkForSingleAvailableDocumentType()
+
         await view?.updateSelection(selectedCountry: selectedCountry, selectedDocument: selectedDocument)
         await clearErrorsIfNeeded()
     }

@@ -363,7 +363,7 @@ private struct DocumentTypeStaticView: View {
     @EnvironmentObject var theme: TruoraTheme
 
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(document.label(for: country))
                 .font(theme.typography.bodyLarge)
                 .foregroundColor(theme.colors.onSurface)
