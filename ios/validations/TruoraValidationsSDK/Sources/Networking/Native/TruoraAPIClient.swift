@@ -215,7 +215,19 @@ public class TruoraAPIClient {
         }
     }
 
-    private func encodeToFormData(_ request: NativeValidationRequest) -> String {
+    /// Serializes `NativeValidationRequest` into an `application/x-www-form-urlencoded`
+    /// body. Kept manual (not `JSONEncoder`) because Swift's standard Codable encoders
+    /// don't speak form-urlencoded, and a repeated key like `subvalidations=a&subvalidations=b`
+    /// has to be encoded specifically.
+    ///
+    /// ⚠️ Pairs with `NativeValidationRequest` — every new non-nil field on that struct
+    /// must be emitted here. `TruoraAPIClientTests.testEncodeToFormData_includesAllNonNilFields`
+    /// guards against forgetting.
+    ///
+    /// Exposed as `internal` (vs `private`) so the drift-guard test can call it directly
+    /// without having to intercept `httpBody` through `URLProtocol` (URLSession strips
+    /// it to a stream during dispatch, making body capture unreliable in tests).
+    func encodeToFormData(_ request: NativeValidationRequest) -> String {
         var queryItems: [URLQueryItem] = []
 
         queryItems.append(URLQueryItem(name: "type", value: request.type))
@@ -246,6 +258,10 @@ public class TruoraAPIClient {
             for sub in subs {
                 queryItems.append(URLQueryItem(name: "subvalidations", value: sub))
             }
+        }
+
+        if let retryOfId = request.retryOfId {
+            queryItems.append(URLQueryItem(name: "retry_of_id", value: retryOfId))
         }
 
         var components = URLComponents()

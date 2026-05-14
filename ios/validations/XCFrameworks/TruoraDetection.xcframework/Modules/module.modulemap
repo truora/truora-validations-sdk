@@ -1,4 +1,4 @@
-module TruoraDetection {
-    header "../Headers/truora_detection.h"
+framework module TruoraDetection {
+    header "truora_detection.h"
     export *
 }

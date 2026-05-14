@@ -82,8 +82,8 @@ import XCTest
         // Given
         let instructions = NativeValidationInstructions(
             fileUploadLink: nil,
-            frontUrl: "https://example.com/front",
-            reverseUrl: "https://example.com/reverse"
+            frontUrl: "https://files.truora.com/front",
+            reverseUrl: "https://files.truora.com/reverse"
         )
         let response = NativeValidationCreateResponse(
             validationId: "validation-123",
@@ -97,8 +97,8 @@ import XCTest
         XCTAssertTrue(mockView.hideLoadingCalled)
         XCTAssertTrue(mockRouter.navigateToDocumentCaptureCalled)
         XCTAssertEqual(mockRouter.lastValidationId, "validation-123")
-        XCTAssertEqual(mockRouter.lastFrontUploadUrl, "https://example.com/front")
-        XCTAssertEqual(mockRouter.lastReverseUploadUrl, "https://example.com/reverse")
+        XCTAssertEqual(mockRouter.lastFrontUploadUrl, "https://files.truora.com/front")
+        XCTAssertEqual(mockRouter.lastReverseUploadUrl, "https://files.truora.com/reverse")
     }
 
     func testValidationCreated_withMissingFrontUrl_showsError() async {
@@ -106,7 +106,7 @@ import XCTest
         let instructions = NativeValidationInstructions(
             fileUploadLink: nil,
             frontUrl: nil,
-            reverseUrl: "https://example.com/reverse"
+            reverseUrl: "https://files.truora.com/reverse"
         )
         let response = NativeValidationCreateResponse(
             validationId: "validation-123",
@@ -128,7 +128,7 @@ import XCTest
         let instructions = NativeValidationInstructions(
             fileUploadLink: nil,
             frontUrl: "",
-            reverseUrl: "https://example.com/reverse"
+            reverseUrl: "https://files.truora.com/reverse"
         )
         let response = NativeValidationCreateResponse(
             validationId: "validation-123",

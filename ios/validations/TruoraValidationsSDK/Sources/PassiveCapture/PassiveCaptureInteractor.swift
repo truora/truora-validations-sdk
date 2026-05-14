@@ -102,6 +102,13 @@ extension PassiveCaptureInteractor: PassiveCapturePresenterToInteractor {
             return nil
         }
 
+        if !UploadUrlValidator.isTruoraFilesUploadUrl(uploadUrl) {
+            debugLog("❌ PassiveCaptureInteractor: Upload URL is not a valid Truora endpoint")
+            let details = "Invalid file upload link"
+            reportUploadError(presenter: presenter, type: .uploadFailed, details: details)
+            return nil
+        }
+
         if UploadUrlValidator.isExpired(uploadUrl) {
             debugLog("❌ PassiveCaptureInteractor: Upload URL has expired (validation timeout)")
             let details = "Validation expired. The time limit was exceeded."

@@ -1,16 +1,14 @@
 # Truora Validations iOS SDK
 
-A modular iOS SDK for face validation using VIPER architecture, built with Tuist and integrating Kotlin Multiplatform (KMP) modules for API and UI.
+A modular iOS SDK for face, document, and invoice (proof of address) validation using VIPER architecture, built with Tuist and integrating Kotlin Multiplatform (KMP) modules for API and UI.
 
 ## Overview
 
-This SDK provides a complete face validation flow with:
-1. **Enrollment creation** - Register user for validation
-2. **Base image upload** - Upload reference ID photo
-3. **Enrollment verification** - Confirm enrollment status
-4. **Validation creation** - Initiate face validation
-5. **Passive capture** - Record face video with Compose UI overlay
-6. **Result display** - Show validation outcome
+This SDK provides three validation flows:
+
+- **Face validation** — Enrollment, base image upload, passive face capture, and result display
+- **Document validation** — Capture document photos with country/document-type selection
+- **Invoice validation** — Upload a utility bill (proof of address) via file picker or camera (currently available for Mexico and Colombia)
 
 ## Architecture
 
@@ -67,10 +65,25 @@ ios/validations/
 
 ### Prerequisites
 
+#### Required for any build
+
 - Xcode 16+. We recommend always using the latest Xcode version.
 - iOS 13.0+
 - Tuist 4.0+
 - CocoaPods (if using)
+- **mise** — task runner used by `mise run generate`. Install with `brew install mise` and follow the activation step in the [mise install guide](https://mise.jdx.dev/installing-mise.html).
+
+#### Optional — only needed to sync models from the registry (release prep, latest model fetch)
+
+If unavailable, `mise run generate` warns and falls through to `tuist generate` using whatever `.tflite` is currently tracked in git, so dev builds still work without the credentials below.
+
+- **AWS CLI v2 + AWS SSO access with S3 read on `truora-model-registry`** — used to download the model binary. Configure once with `aws configure sso`, then verify before release prep:
+  ```bash
+  aws sso login --profile <your-profile>
+  export AWS_PROFILE=<your-profile>
+  aws sts get-caller-identity                                                                  # should print your role/account
+  ```
+- **SSH access to `bitbucket.org/truora/model-registry`** — used to fetch the `.dvc` pointer for the model.
 
 ### Installation
 
@@ -85,15 +98,18 @@ ios/validations/
    brew install --formula tuist
    ```
 
-3. **Generate the Xcode project**
+3. **Generate the Xcode project (fetches ML models, then runs tuist generate)**
    ```bash
-   tuist generate
+   mise run generate
    ```
+   > Use `mise run generate` instead of bare `tuist generate`. The wrapper fetches the latest models from the model registry before generating, so your local SDK stays in sync with what ML team has approved into master. Subsequent runs are instantaneous (md5 cache hit) and only re-download when the registry has changed.
+   >
+   > **Releasing a new SDK version?** Run `FETCH_MODELS_STRICT=1 mise run generate` immediately before producing the release artifact, then smoke test the sample app. The strict flag turns AWS or SSH failures into hard errors so a release never ships a stale `.tflite` from git when the registry has moved on (without it, a credential failure silently falls back to whatever model is committed). This is the QA gate that catches regressions in the latest model from master before they ship to integrators.
 
 4. **Open the workspace**
    ```bash
    open validations.xcworkspace
-```
+   ```
 
 ## Usage
 
@@ -146,7 +162,7 @@ The Sample App hosts the shared Vue sample app (`sample-apps/validations-sdk-sam
 
 #### Steps
 
-1. Generate the project: `tuist generate`
+1. Generate the project: `mise run generate`
 2. Open `validations.xcworkspace`
 3. Select the **SampleApp** scheme
 4. Choose a simulator or physical device (iOS 13.0+)
@@ -300,7 +316,7 @@ tuist test TruoraValidationsSDKTests
 1. Define the semantic_version for the release following iOS standard in [SemVer 2.0](https://semver.org/)
 2. Build the assets for sharing with CocoaPods
 ```bash
-tuist generate
+mise run generate
 ```
 
 3. Change the version in the respective podspec files of the SDK. For example:
@@ -398,7 +414,7 @@ Test with the official sample app by:
 tuist install
 
 tuist clean
-tuist generate
+mise run generate
 ```
 
 ## Troubleshooting
@@ -406,7 +422,7 @@ tuist generate
 ### Build Errors
 
 **Localizable strings are not updated**
-- Ensure generated strings are built: `tuist generate`
+- Ensure generated strings are built: `mise run generate` (bare `tuist generate` is also fine here — strings regeneration does not depend on the model fetch)
 - Commit them into your generated tag for the release
 
 ### Runtime Errors

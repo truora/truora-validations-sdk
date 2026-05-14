@@ -237,7 +237,7 @@ import XCTest
         let mockResponse = MockResponseBuilder.validationCreateResponse(
             validationId: "mock-validation-id",
             instructions: MockResponseBuilder.validationInstructions(
-                fileUploadLink: "https://example.com/upload"
+                fileUploadLink: "https://files.truora.com/upload"
             )
         )
 
@@ -257,7 +257,7 @@ import XCTest
         )
         XCTAssertEqual(
             mockRouter.lastUploadUrl,
-            "https://example.com/upload",
+            "https://files.truora.com/upload",
             "Should pass upload URL from instructions to router"
         )
     }

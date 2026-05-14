@@ -236,30 +236,42 @@ final class DetectionReporterTests: XCTestCase {
     }
 
     func testReportLayer_newSignals_deltaBitmaskIsNonZero() async {
-        let detector = makeDetector(
-            isSimulator: true,
-            devices: [
-                CameraDeviceInfo(
-                    deviceType: .external,
-                    position: "unspecified",
-                    uniqueID: "ext-1",
-                    lensPosition: nil
-                )
-            ]
-        )
+        // Each detection layer now runs the full checker suite, so signals that
+        // existed at SDK start are surfaced on the first call. To assert a
+        // non-zero delta we need state that changes BETWEEN calls — here we
+        // simulate the device being put into the simulator runtime only after
+        // the first report ran on a clean baseline.
+        let systemInfo = MockSystemInfoProvider()
+        let cameraInfo = MockCameraInfoProvider(devices: [
+            CameraDeviceInfo(
+                deviceType: .builtInWideAngle,
+                position: "back",
+                uniqueID: "cam-1",
+                lensPosition: 0.5
+            )
+        ])
+        let detector = InjectionDetector(systemInfo: systemInfo, cameraInfo: cameraInfo)
         let logger = MockDetectionLogger()
         let reporter = DetectionReporter(detector: detector, logger: logger, flowType: "face")
 
-        // First: init detects simulator
+        // First call: clean baseline, all bits zero.
         _ = await reporter.reportLayer("init")
-        // Second: camera detects external camera (new signal)
-        _ = await reporter.reportLayer("camera")
+
+        // The integrity envelope changes mid-session — flip the simulator flag
+        // so the next layer call surfaces a brand-new signal.
+        systemInfo.isSimulator = true
+
+        _ = await reporter.reportLayer("runtime")
 
         XCTAssertEqual(logger.entries.count, 2)
 
+        let firstMetadata = logger.entries[0].metadata
+        let firstDelta = firstMetadata?["delta_bitmask"] as? String
+        XCTAssertEqual(firstDelta, "0", "Clean baseline must report delta=0")
+
         let secondMetadata = logger.entries[1].metadata
-        let deltaBitmask = secondMetadata?["delta_bitmask"] as? String
-        XCTAssertNotEqual(deltaBitmask, "0", "Delta should be non-zero for new signals")
+        let secondDelta = secondMetadata?["delta_bitmask"] as? String
+        XCTAssertNotEqual(secondDelta, "0", "Delta should be non-zero when new signals appear between layers")
     }
 
     // MARK: - Escalation

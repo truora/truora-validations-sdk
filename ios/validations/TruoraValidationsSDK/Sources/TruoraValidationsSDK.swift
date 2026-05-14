@@ -143,6 +143,7 @@ public class TruoraValidationsSDK {
                 let flowTypeString = switch self.type {
                 case .face: "face"
                 case .document: "document"
+                case .invoice: "invoice"
                 }
                 ValidationConfig.shared.initializeDetectionReporter(flowType: flowTypeString)
                 if let reporter = ValidationConfig.shared.detectionReporter {
@@ -268,6 +269,25 @@ public class TruoraValidationsSDK {
                 lang: lang,
                 validationConfig: validation,
                 validationType: .document(validation)
+            )
+        }
+
+        /// Configures Invoice validation with the provided configuration options.
+        /// - Parameter validationConfigurator: A closure that receives an Invoice configuration object
+        ///   and returns the configured Invoice
+        /// - Returns: A TypedBuilder for Invoice validation
+        @discardableResult
+        public func withValidation<T: Invoice>(
+            _ validationConfigurator: (T) -> T
+        ) -> TypedBuilder<T> {
+            let validation = validationConfigurator(T())
+            return TypedBuilder<T>(
+                apiKeyGenerator: apiKeyGenerator,
+                userId: userId,
+                uiConfig: uiConfig,
+                lang: lang,
+                validationConfig: validation,
+                validationType: .invoice(validation)
             )
         }
     }

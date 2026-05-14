@@ -11,6 +11,7 @@
 "passive_capture_feedback_multiple_people" = "Evite aparecer com alguém mais";
 "passive_capture_feedback_hidden_face" = "Descubra seu rosto";
 "passive_capture_feedback_center_face" = "Centralize seu rosto no oval";
+"passive_capture_feedback_look_forward" = "Olhe para a câmera";
 "passive_capture_feedback_recording" = "Não se mova!\nGravando";
 "passive_capture_record_video" = "gravar vídeo";
 "passive_capture_cannot_record" = "Não conseguimos gravar.\nPressione \"%@\".";
@@ -192,6 +193,43 @@
 "desc_taxpayer_id" = "ID do contribuinte";
 "desc_co_taxpayer_id" = "Número de Identificação Tributária";
 "desc_co_ptp" = "PPT (Permissão por proteção temporária)";
+
+/* Invoice Instructions (country-specific) */
+"invoice_instructions_title_mx" = "Envie seu comprovante de endereço";
+"invoice_instructions_title_co" = "Envie sua fatura para verificar as informações";
+"invoice_instructions_subtitle_prefix_mx" = "Com ";
+"invoice_instructions_validity_period" = "validade máxima de 3 meses";
+"invoice_instructions_subtitle_suffix_mx" = " dos seguintes provedores:";
+"invoice_instructions_subtitle_co" = "Aceitamos faturas dos seguintes provedores:";
+"invoice_instructions_upload_file" = "Enviar arquivo";
+"invoice_instructions_take_photo" = "Tirar foto";
+"invoice_instructions_creating_validation" = "Criando validação...";
+
+/* Invoice Feedback (country-specific titles) */
+"invoice_feedback_missing_text_title_mx" = "Não conseguimos ler os dados do seu comprovante";
+"invoice_feedback_missing_text_title_co" = "Não conseguimos ler os dados da sua fatura";
+"invoice_feedback_missing_text_desc" = "Certifique-se de que esteja bem iluminado, em foco e que todas as informações estejam claras.";
+"invoice_feedback_not_found_title_mx" = "Não conseguimos identificar o comprovante";
+"invoice_feedback_not_found_title_co" = "Não conseguimos identificar a fatura";
+"invoice_feedback_not_found_desc_prefix_mx" = "Certifique-se de que seja de ";
+"invoice_feedback_not_found_providers_mx" = "CFE, TELMEX ou Totalplay";
+"invoice_feedback_not_found_desc_suffix_mx" = " como os mostrados abaixo:";
+"invoice_feedback_not_found_desc_prefix_co" = "Certifique-se de que seja de ";
+"invoice_feedback_not_found_providers_co" = "Alcanos, Metrogas ou Gases del Oriente";
+"invoice_feedback_not_found_desc_suffix_co" = " como os mostrados abaixo:";
+"invoice_feedback_expired_title_mx" = "O comprovante está vencido";
+"invoice_feedback_expired_title_co" = "A fatura está vencida";
+"invoice_feedback_expired_desc_mx" = "Envie um comprovante com validade máxima de 3 meses.";
+"invoice_feedback_expired_desc_co" = "Envie uma fatura com validade máxima de 3 meses.";
+"invoice_feedback_tips_link" = "Dicas para tirar uma foto melhor";
+"invoice_feedback_retry" = "Tentar novamente";
+"invoice_feedback_retries_left" = "Tentativas restantes %@";
+"invoice_feedback_tips_title" = "Dicas para uma foto melhor";
+"invoice_feedback_tip_corners_mx" = "Certifique-se de que os quatro cantos do comprovante estejam visíveis.";
+"invoice_feedback_tip_corners_co" = "Certifique-se de que os quatro cantos da fatura estejam visíveis.";
+"invoice_feedback_tip_glare_mx" = "Evite reflexos ou brilho sobre o comprovante.";
+"invoice_feedback_tip_glare_co" = "Evite reflexos ou brilho sobre a fatura.";
+"invoice_feedback_tip_angle" = "Tire a foto de frente, sem ângulo.";
 
 /* Cancel Alert */
 "cancel_alert_title" = "Cancelar validação";

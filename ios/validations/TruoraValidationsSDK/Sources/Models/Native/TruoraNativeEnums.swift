@@ -340,6 +340,11 @@ public enum FeedbackScenario: String {
     case backOfDocumentNotFound = "back_of_document_not_found"
     case faceNotFound = "face_not_found"
     case lowLight = "low_light"
+    case missingText = "missing_text"
+    case documentNotRecognized = "document_not_recognized"
+    case documentHasExpired = "document_has_expired"
+    case wrongDocumentFound = "wrong_document_found"
+    case grayscaleImage = "grayscale_image"
 }
 
 // MARK: - DocumentAutoCaptureEvent

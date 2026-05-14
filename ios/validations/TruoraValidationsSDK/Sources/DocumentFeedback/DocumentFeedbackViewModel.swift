@@ -48,6 +48,8 @@ import Foundation
         case .frontOfDocumentNotFound: .placeTheFront
         case .backOfDocumentNotFound: .placeTheBack
         case .blurryImage, .imageWithReflection, .faceNotFound, .lowLight: nil
+        case .missingText, .documentNotRecognized, .documentHasExpired, .wrongDocumentFound, .grayscaleImage:
+            nil
         }
     }
 

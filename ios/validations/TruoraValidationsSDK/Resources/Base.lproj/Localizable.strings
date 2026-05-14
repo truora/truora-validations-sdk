@@ -11,6 +11,7 @@
 "passive_capture_feedback_multiple_people" = "Avoid appearing with anyone else";
 "passive_capture_feedback_hidden_face" = "Uncover your face";
 "passive_capture_feedback_center_face" = "Center your face in the oval";
+"passive_capture_feedback_look_forward" = "Look at the camera";
 "passive_capture_feedback_recording" = "Don't move!\nRecording";
 "passive_capture_record_video" = "record video";
 "passive_capture_cannot_record" = "We couldn't record.\nPress \"%@\".";

@@ -39,7 +39,10 @@ struct AnimatedGIFView: UIViewRepresentable {
 
         for index in 0 ..< count {
             guard let cgImage = CGImageSourceCreateImageAtIndex(source, index, nil) else { continue }
-            let frame = UIImage(cgImage: cgImage)
+            var frame = UIImage(cgImage: cgImage)
+            if tintColor != nil {
+                frame = frame.withRenderingMode(.alwaysTemplate)
+            }
             images.append(frame)
             let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [String: Any]
             let gifProps = props?[kCGImagePropertyGIFDictionary as String] as? [String: Any]
@@ -49,12 +52,9 @@ struct AnimatedGIFView: UIViewRepresentable {
             totalDuration += delay
         }
 
-        let animatedImage = UIImage.animatedImage(with: images, duration: totalDuration)
-        if tintColor != nil {
-            imageView.image = animatedImage?.withRenderingMode(.alwaysTemplate)
+        imageView.image = UIImage.animatedImage(with: images, duration: totalDuration)
+        if let tintColor {
             imageView.tintColor = tintColor
-        } else {
-            imageView.image = animatedImage
         }
         return container
     }

@@ -80,6 +80,13 @@ public class CameraView: UIView {
         cameraManager.takePicture(delegate: self)
     }
 
+    /// Converts a Vision framework bounding box (normalized, bottom-left origin) to
+    /// view-space points inside this camera view. Returns `nil` when the preview
+    /// layer has not been laid out yet.
+    public func convertVisionBoundingBoxToViewRect(_ visionBox: CGRect) -> CGRect? {
+        cameraManager.convertVisionBoundingBoxToViewRect(visionBox)
+    }
+
     public func startRecordingVideo() {
         cameraManager.startRecordingVideo(delegate: self)
     }

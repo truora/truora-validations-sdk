@@ -6,14 +6,12 @@
 
 set -e
 
-# Xcode runs build scripts with a minimal PATH. When running from Xcode,
-# always inherit the full PATH from the user's login shell so node/npm are
-# found regardless of how they were installed (Homebrew, nvm, fnm, volta, etc.).
-# This also handles cases where Xcode finds a broken npm installation before
-# the correct one (e.g. a Homebrew node without its npm module).
-if [ -n "${SRCROOT:-}" ] || ! command -v npm &>/dev/null; then
-  USER_PATH=$("${SHELL:-/bin/zsh}" -ilc 'echo $PATH' 2>/dev/null) && export PATH="$USER_PATH"
-fi
+# Inherit the user's login PATH so node/npm are reachable from Xcode's
+# sanitized PATH. See scripts/lib/inherit-login-path.sh for the full rationale.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# shellcheck source=../../../scripts/lib/inherit-login-path.sh
+source "$SCRIPT_DIR/../../../scripts/lib/inherit-login-path.sh"
+inherit_login_path
 
 # Use SRCROOT when run from Xcode
 if [ -n "${SRCROOT:-}" ]; then
@@ -55,13 +53,15 @@ fi
 if [ -n "${BUILT_PRODUCTS_DIR:-}" ] && [ -n "${FULL_PRODUCT_NAME:-}" ]; then
   APP_BUNDLE="$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME"
   WEBVIEW_DST="$APP_BUNDLE/webview"
+  rm -rf "$WEBVIEW_DST"
   mkdir -p "$WEBVIEW_DST"
-  cp -R "$VUE_APP/dist/"* "$WEBVIEW_DST/"
+  cp -R "$VUE_APP/dist/." "$WEBVIEW_DST/"
   echo "Copied WebView assets into app bundle: $WEBVIEW_DST"
 else
   # Manual run: copy to Resources so project stays in sync
   WEBVIEW_DST="$PROJECT_DIR/SampleApp/Resources/webview"
+  rm -rf "$WEBVIEW_DST"
   mkdir -p "$WEBVIEW_DST"
-  cp -R "$VUE_APP/dist/"* "$WEBVIEW_DST/"
+  cp -R "$VUE_APP/dist/." "$WEBVIEW_DST/"
   echo "Copied WebView assets to $WEBVIEW_DST"
 fi

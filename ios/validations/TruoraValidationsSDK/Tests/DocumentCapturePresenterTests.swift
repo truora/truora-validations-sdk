@@ -32,8 +32,8 @@ import XCTest
         mockTimeProvider = MockTimeProvider()
         let navController = TruoraNavigationController()
         mockRouter = MockDocumentCaptureRouter(navigationController: navController)
-        mockRouter.frontUploadUrl = "https://example.com/front"
-        mockRouter.reverseUploadUrl = "https://example.com/reverse"
+        mockRouter.setFrontUploadUrlForTest("https://example.com/front")
+        mockRouter.setReverseUploadUrlForTest("https://example.com/reverse")
 
         sut = DocumentCapturePresenter(
             view: mockView,
@@ -61,16 +61,18 @@ import XCTest
         await sut.viewDidLoad()
 
         // Then
-        XCTAssertTrue(mockInteractor.setUploadUrlsCalled, "Should configure upload URLs in interactor")
+        XCTAssertTrue(
+            mockInteractor.setUploadUrlsCalled, "Should configure upload URLs in interactor"
+        )
         XCTAssertTrue(mockView.setupCameraCalled, "Should setup camera in view")
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update initial UI state")
-        XCTAssertEqual(mockInteractor.lastFrontUploadUrl, "https://example.com/front")
-        XCTAssertEqual(mockInteractor.lastReverseUploadUrl, "https://example.com/reverse")
+        XCTAssertEqual(mockInteractor.lastFrontUploadUrl, "https://files.truora.com/front")
+        XCTAssertEqual(mockInteractor.lastReverseUploadUrl, "https://files.truora.com/reverse")
     }
 
     func testViewDidLoad_withMissingFrontUrl_showsError() async {
         // Given
-        mockRouter.frontUploadUrl = nil
+        mockRouter.setFrontUploadUrlForTest(nil)
 
         // When
         await sut.viewDidLoad()
@@ -84,7 +86,7 @@ import XCTest
 
     func testViewDidLoad_withSingleSidedDocument_configuresInteractorAndCamera() async {
         // Given - Single-sided document (like passport) with only front URL
-        mockRouter.reverseUploadUrl = nil
+        mockRouter.setReverseUploadUrlForTest(nil)
 
         // When
         await sut.viewDidLoad()
@@ -93,8 +95,10 @@ import XCTest
         XCTAssertFalse(mockView.showErrorCalled, "Should NOT show error for single-sided documents")
         XCTAssertTrue(mockInteractor.setUploadUrlsCalled, "Should configure interactor")
         XCTAssertTrue(mockView.setupCameraCalled, "Should setup camera")
-        XCTAssertEqual(mockInteractor.lastFrontUploadUrl, "https://example.com/front")
-        XCTAssertNil(mockInteractor.lastReverseUploadUrl, "Reverse URL should be nil for single-sided")
+        XCTAssertEqual(mockInteractor.lastFrontUploadUrl, "https://files.truora.com/front")
+        XCTAssertNil(
+            mockInteractor.lastReverseUploadUrl, "Reverse URL should be nil for single-sided"
+        )
     }
 
     func testViewWillDisappear_stopsCamera() async {
@@ -123,26 +127,36 @@ import XCTest
         XCTAssertEqual(mockInteractor.lastPhotoData?.count, 4)
     }
 
-    func testPhotoCaptured_frontSide_withCountryAndDocumentType_evaluatesImageOnFirstAttempt() async throws {
+    func testPhotoCaptured_frontSide_withCountryAndDocumentType_evaluatesImageOnFirstAttempt()
+    async throws {
         // Given
-        try ValidationConfig.shared.setValidation(.document(Document().setCountry("PE").setDocumentType("national-id")))
+        try ValidationConfig.shared.setValidation(
+            .document(Document().setCountry("PE").setDocumentType("national-id"))
+        )
         let photoData = Data([0x01, 0x02, 0x03, 0x04])
 
         // When
         await sut.photoCaptured(photoData: photoData)
 
         // Then
-        XCTAssertTrue(mockInteractor.evaluateImageCalled, "Should evaluate image when config is available")
-        XCTAssertFalse(mockInteractor.uploadPhotoCalled, "Should not upload until evaluation succeeds")
+        XCTAssertTrue(
+            mockInteractor.evaluateImageCalled, "Should evaluate image when config is available"
+        )
+        XCTAssertFalse(
+            mockInteractor.uploadPhotoCalled, "Should not upload until evaluation succeeds"
+        )
         XCTAssertEqual(mockInteractor.lastEvaluateSide, .front)
         XCTAssertEqual(mockInteractor.lastEvaluateCountry, "PE")
         XCTAssertEqual(mockInteractor.lastEvaluateDocumentType, "national-id")
         XCTAssertEqual(mockInteractor.lastEvaluateValidationId, "test-validation-id")
     }
 
-    func testEvaluationFailure_incrementsAttempts_routesToFeedback_andThirdCaptureUploadsDirectly() async throws {
+    func testEvaluationFailure_incrementsAttempts_routesToFeedback_andThirdCaptureUploadsDirectly()
+    async throws {
         // Given
-        try ValidationConfig.shared.setValidation(.document(Document().setCountry("PE").setDocumentType("national-id")))
+        try ValidationConfig.shared.setValidation(
+            .document(Document().setCountry("PE").setDocumentType("national-id"))
+        )
         let photoData = Data([0x01, 0x02, 0x03, 0x04])
 
         // 1st capture -> evaluate
@@ -150,7 +164,9 @@ import XCTest
         XCTAssertTrue(mockInteractor.evaluateImageCalled)
 
         // When: evaluation fails with FACE_NOT_FOUND
-        await sut.imageEvaluationFailed(side: .front, previewData: photoData, reason: "FACE_NOT_FOUND")
+        await sut.imageEvaluationFailed(
+            side: .front, previewData: photoData, reason: "FACE_NOT_FOUND"
+        )
 
         // Then: routes to feedback with mapped scenario and retriesLeft 2
         XCTAssertTrue(mockRouter.navigateToDocumentFeedbackCalled)
@@ -164,7 +180,9 @@ import XCTest
         XCTAssertTrue(mockInteractor.evaluateImageCalled)
 
         // When: evaluation fails again
-        await sut.imageEvaluationFailed(side: .front, previewData: photoData, reason: "BLURRY_IMAGE")
+        await sut.imageEvaluationFailed(
+            side: .front, previewData: photoData, reason: "BLURRY_IMAGE"
+        )
 
         // Then: retriesLeft 1
         XCTAssertTrue(mockRouter.navigateToDocumentFeedbackCalled)
@@ -232,7 +250,9 @@ import XCTest
         await sut.photoCaptured(photoData: secondData)
 
         // Then
-        XCTAssertFalse(mockInteractor.uploadPhotoCalled, "Should ignore new capture while uploading")
+        XCTAssertFalse(
+            mockInteractor.uploadPhotoCalled, "Should ignore new capture while uploading"
+        )
     }
 
     // MARK: - Event Handling Tests
@@ -309,15 +329,19 @@ import XCTest
 
         // Then - Verify transition to back side after animation
         XCTAssertEqual(self.mockView.lastSide, .back, "Should transition to back side")
-        XCTAssertEqual(self.mockView.lastFeedbackType, .scanning, "Should be in autocapture mode for back")
-        XCTAssertFalse(self.mockView.lastShowRotationAnimation ?? true, "Animation should be complete")
+        XCTAssertEqual(
+            self.mockView.lastFeedbackType, .scanning, "Should be in autocapture mode for back"
+        )
+        XCTAssertFalse(
+            self.mockView.lastShowRotationAnimation ?? true, "Animation should be complete"
+        )
     }
 
     // MARK: - Single-Sided Document Tests
 
     func testSingleSidedDocument_frontCompleted_navigatesToResult() async {
         // Given - Single-sided document (passport)
-        mockRouter.reverseUploadUrl = nil
+        mockRouter.setReverseUploadUrlForTest(nil)
         await sut.viewDidLoad()
         await sut.photoCaptured(photoData: Data([0x01, 0x02]))
         mockView.reset()
@@ -332,7 +356,9 @@ import XCTest
         // Then - Initial state
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
         XCTAssertEqual(mockView.lastFrontPhotoStatus, .success, "Front photo should be success")
-        XCTAssertFalse(mockView.lastShowRotationAnimation ?? false, "Should NOT show rotation animation")
+        XCTAssertFalse(
+            mockView.lastShowRotationAnimation ?? false, "Should NOT show rotation animation"
+        )
 
         // Resume delay before navigation
         mockTimeProvider.resumeAllSleeps()
@@ -346,7 +372,7 @@ import XCTest
 
     func testSingleSidedDocument_doesNotTransitionToBackSide() async {
         // Given - Single-sided document
-        mockRouter.reverseUploadUrl = nil
+        mockRouter.setReverseUploadUrlForTest(nil)
         await sut.viewDidLoad()
         await sut.photoCaptured(photoData: Data([0x01, 0x02]))
         mockView.reset()
@@ -360,13 +386,14 @@ import XCTest
         await task.value
 
         // Then - Verify NO transition to back side
-        XCTAssertFalse(mockView.lastShowRotationAnimation ?? false, "Should NOT show rotation animation")
+        XCTAssertFalse(
+            mockView.lastShowRotationAnimation ?? false, "Should NOT show rotation animation"
+        )
         XCTAssertNotEqual(self.mockView.lastSide, .back, "Should NOT transition to back side")
     }
 
     func testTwoSidedDocument_frontCompleted_transitionsToBackSide() async {
-        // Given - Two-sided document (has both URLs)
-        XCTAssertNotNil(mockRouter.reverseUploadUrl, "Should have reverse URL for two-sided doc")
+        // Given - Two-sided document (setUp configured both front and reverse URLs)
         await sut.viewDidLoad()
         await sut.photoCaptured(photoData: Data([0x01, 0x02]))
         mockView.reset()
@@ -485,7 +512,9 @@ import XCTest
         XCTAssertEqual(mockView.lastSide, .front, "Should start on front side")
         XCTAssertEqual(mockView.lastFeedbackType, .searching, "Should start in autocapture mode")
         XCTAssertFalse(mockView.lastShowHelpDialog ?? true, "Help dialog should be hidden")
-        XCTAssertFalse(mockView.lastShowRotationAnimation ?? true, "No rotation animation initially")
+        XCTAssertFalse(
+            mockView.lastShowRotationAnimation ?? true, "No rotation animation initially"
+        )
     }
 
     func testRotationAnimation_timingAndStateTransition() async {
@@ -506,7 +535,9 @@ import XCTest
         mockTimeProvider.resumeAllSleeps()
         await task.value
 
-        XCTAssertFalse(self.mockView.lastShowRotationAnimation ?? true, "Animation should be complete")
+        XCTAssertFalse(
+            self.mockView.lastShowRotationAnimation ?? true, "Animation should be complete"
+        )
         XCTAssertEqual(self.mockView.lastSide, .back, "Should transition to back side")
     }
 
@@ -545,7 +576,9 @@ import XCTest
         await manualPresenter.switchToManualCapture()
 
         // Then - Should not update UI (guard returns early)
-        XCTAssertFalse(mockView.updateComposeUICalled, "Should not update UI when already in manual mode")
+        XCTAssertFalse(
+            mockView.updateComposeUICalled, "Should not update UI when already in manual mode"
+        )
     }
 
     func testSwitchToManualCapture_calledMultipleTimes_onlyTransitionsOnce() async {
@@ -581,7 +614,9 @@ import XCTest
         // Then
         XCTAssertTrue(mockView.stopCameraCalled, "Should stop camera")
         XCTAssertTrue(mockRouter.handleCancellationCalled, "Should handle cancellation")
-        XCTAssertEqual(mockRouter.lastCancellationLoadingType, .document, "Should pass document loading type")
+        XCTAssertEqual(
+            mockRouter.lastCancellationLoadingType, .document, "Should pass document loading type"
+        )
     }
 
     // MARK: - Audio Instruction Tests
@@ -591,7 +626,10 @@ import XCTest
         await sut.cameraReady()
 
         // Then - audio instructions are not sent by the presenter (handled at view level)
-        XCTAssertNil(mockView.lastAudioInstruction, "Presenter does not send audio instructions; audio is handled at the view level")
+        XCTAssertNil(
+            mockView.lastAudioInstruction,
+            "Presenter does not send audio instructions; audio is handled at the view level"
+        )
     }
 
     func testTransitionToBackSide_sendsPlaceTheBackAudio() async {
@@ -604,7 +642,10 @@ import XCTest
         await task.value
 
         // Then - audio instructions are not sent by the presenter (handled at view level)
-        XCTAssertFalse(mockView.audioInstructions.contains(.placeTheBack), "Presenter does not send audio instructions; audio is handled at the view level")
+        XCTAssertFalse(
+            mockView.audioInstructions.contains(.placeTheBack),
+            "Presenter does not send audio instructions; audio is handled at the view level"
+        )
     }
 
     func testTransitionToManualMode_sendsDocumentNotFoundAudio() async {
@@ -616,7 +657,10 @@ import XCTest
         await sut.switchToManualCapture()
 
         // Then - audio instructions are not sent by the presenter (handled at view level)
-        XCTAssertNil(mockView.lastAudioInstruction, "Presenter does not send audio instructions; audio is handled at the view level")
+        XCTAssertNil(
+            mockView.lastAudioInstruction,
+            "Presenter does not send audio instructions; audio is handled at the view level"
+        )
     }
 
     func testCameraPermissionDenied_callsRouterHandleError() async {
@@ -744,7 +788,8 @@ import XCTest
     }
 }
 
-private final class MockDocumentCaptureInteractor: @preconcurrency DocumentCapturePresenterToInteractor {
+private final class MockDocumentCaptureInteractor:
+@preconcurrency DocumentCapturePresenterToInteractor {
     private(set) var setUploadUrlsCalled = false
     private(set) var uploadPhotoCalled = false
     private(set) var evaluateImageCalled = false
@@ -789,7 +834,9 @@ private final class MockDocumentCaptureInteractor: @preconcurrency DocumentCaptu
 
     func logDocCaptureSucceeded(side: DocumentCaptureSide, validationId: String) async {}
 
-    func logDocCaptureFailed(side: DocumentCaptureSide, validationId: String, errorMessage: String) async {}
+    func logDocCaptureFailed(side: DocumentCaptureSide, validationId: String, errorMessage: String)
+        async
+    {}
 
     func logDocFeedbackSucceeded(validationId: String, result: String, reason: String?) async {}
 

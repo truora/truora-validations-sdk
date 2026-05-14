@@ -122,20 +122,23 @@ final class InjectionDetectorTests: XCTestCase {
         ])
         let detector = InjectionDetector(systemInfo: systemInfo, cameraInfo: cameraInfo)
 
-        let initFactors = detector.runInitChecks()
-        let cameraFactors = detector.runCameraChecks()
+        _ = detector.runInitChecks()
+        _ = detector.runCameraChecks()
         let result = detector.computeTrustResult()
 
-        // Init: simulator=50 + jailbreak file=20 = 70
-        // Camera: external=30
-        // Total penalty = 100, score = 0
+        // Every layer runs the full checker suite. Distinct signals expected:
+        // simulator runtime = 50, jailbreak file = 20, external camera = 30 → total 100, score 0.
+        // Dedupe collapses the same signals across layers into a single factor each.
         XCTAssertEqual(result.trustScore, 0)
-        XCTAssertEqual(result.riskFactors.count, initFactors.count + cameraFactors.count)
+        XCTAssertEqual(result.riskFactors.count, 3)
     }
 
-    // MARK: - Only Init Checks
+    // MARK: - Init Detects All Signals (regression: PROC-7033)
 
-    func testOnlyInitChecks_scoresBasedOnInitOnly() {
+    func testInitChecks_detectsJailbreakAndCameraBeforeCaptureStarts() {
+        // Reproduces the latency defect that allowed Pichincha sessions to start
+        // capture before Frida/jailbreak signals fired. With the multi-layer fix the
+        // init layer alone must surface every category.
         let systemInfo = MockSystemInfoProvider(
             existingFiles: ["/Applications/Cydia.app"]
         )
@@ -144,11 +147,13 @@ final class InjectionDetectorTests: XCTestCase {
         ])
         let detector = InjectionDetector(systemInfo: systemInfo, cameraInfo: cameraInfo)
 
-        _ = detector.runInitChecks()
+        let factors = detector.runInitChecks()
         let result = detector.computeTrustResult()
 
-        // Only jailbreak file=20, camera not run yet
-        XCTAssertEqual(result.trustScore, 80)
+        XCTAssertTrue(factors.contains { $0.category == "jailbreak" })
+        XCTAssertTrue(factors.contains { $0.category == "virtual_camera" })
+        // jailbreak file = 20, external camera = 30 → score 50
+        XCTAssertEqual(result.trustScore, 50)
     }
 
     // MARK: - No Risk Factors

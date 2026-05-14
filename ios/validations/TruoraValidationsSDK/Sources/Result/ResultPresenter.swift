@@ -42,11 +42,13 @@ final class ResultPresenter {
         let configWaitForResults = switch loadingType {
         case .face: ValidationConfig.shared.faceConfig.waitForResults
         case .document: ValidationConfig.shared.documentConfig.waitForResults
+        case .invoice: ValidationConfig.shared.invoiceConfig.waitForResults
         }
 
         self.finishViewConfig = switch loadingType {
         case .face: ValidationConfig.shared.faceConfig.finishViewConfig
         case .document: ValidationConfig.shared.documentConfig.finishViewConfig
+        case .invoice: ValidationConfig.shared.invoiceConfig.finishViewConfig
         }
 
         self.waitForResults = configWaitForResults
@@ -133,9 +135,58 @@ extension ResultPresenter: ResultInteractorToPresenter {
     func pollingCompleted(result: ValidationResult) async {
         finalResult = result
         debugLog("🟢 ResultPresenter: Polling completed with status: \(result.status)")
+        debugLog(
+            "🟢 ResultPresenter: loadingType=\(loadingType) "
+                + "validationStatus=\(result.detail?.validationStatus ?? "nil") "
+                + "failureStatus=\(result.detail?.failureStatus ?? "nil")"
+        )
 
         // Log SDK execution finished
         await interactor?.logSdkExecutionFinished()
+
+        // Invoice feedback: show the retry screen only when the backend reports retries
+        // remaining. When retries are exhausted the user drops to the generic result.
+        if loadingType == .invoice, result.status == .failure {
+            let remainingRetries = result.detail?.remainingRetries ?? 0
+            let declinedReason = result.detail?.declinedReason
+            debugLog(
+                "🟢 ResultPresenter: Invoice failure detected. "
+                    + "declinedReason=\(declinedReason ?? "nil") "
+                    + "remainingRetries=\(remainingRetries)"
+            )
+
+            if remainingRetries > 0 {
+                // If the router has been torn down (weak ref), optional chaining would
+                // silently no-op and the user would see neither the feedback modal nor
+                // the generic Result — explicit guard + fallback avoids that dead end.
+                guard let router else {
+                    debugLog("⚠️ ResultPresenter: Router is nil; falling back to generic result")
+                    await view?.showResult(result)
+                    return
+                }
+
+                let scenario = mapInvoiceDeclinedReason(declinedReason)
+                let capturedImageData = await router.invoiceCapturedImageData
+                // Stash the failed validation_id so the next createValidation on
+                // Instructions can chain onto it via `retry_of_id` (new upload URL,
+                // backend-tracked remaining_retries).
+                await MainActor.run {
+                    router.pendingInvoiceRetryValidationId = result.validationId
+                }
+                do {
+                    try await router.navigateToInvoiceFeedback(
+                        feedback: scenario,
+                        capturedImageData: capturedImageData,
+                        retriesLeft: remainingRetries,
+                        retryBehavior: .popToInvoiceInstructions
+                    )
+                } catch {
+                    debugLog("⚠️ ResultPresenter: Failed to show invoice feedback: \(error)")
+                    await view?.showResult(result)
+                }
+                return
+            }
+        }
 
         guard waitForResults else {
             // UI is already showing "Completed", just notify delegate
@@ -182,6 +233,16 @@ extension ResultPresenter: ResultInteractorToPresenter {
 // MARK: - Private Methods
 
 private extension ResultPresenter {
+    /// Maps the backend-reported invoice `declined_reason` to a `FeedbackScenario`.
+    /// Only `document_not_recognized` renders the "not found" design — any other
+    /// reason (including missing/nil) falls back to the "missing text" design.
+    func mapInvoiceDeclinedReason(_ declinedReason: String?) -> FeedbackScenario {
+        switch declinedReason?.lowercased() {
+        case "document_not_recognized": .documentNotRecognized
+        default: .missingText
+        }
+    }
+
     func shouldAutoDismiss(for status: ValidationStatus) -> Bool {
         guard let config = finishViewConfig else { return false }
         switch status {

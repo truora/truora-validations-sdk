@@ -146,3 +146,8 @@ struct ValidationLoadingView: View {
                 .setOnSurfaceVariantColor("#FF0000")
         ))
 }
+
+#Preview("Invoice Loading") {
+    ValidationLoadingView(loadingType: .invoice)
+        .environmentObject(TruoraTheme(config: nil))
+}

@@ -5,25 +5,48 @@
 //  Created by Truora on 30/10/25.
 //
 
+import AVFoundation
 import Foundation
+import MobileCoreServices
 import ObjectiveC
 import UIKit
 
 // MARK: - Associated Object Key for Router Storage
 
 private var routerAssociatedKey: UInt8 = 0
+private var invoicePickerDelegateKey: UInt8 = 0
 
 // MARK: - Validation Router
 
+// The invoice navigation / feedback / file-picker methods live directly on the class
+// body (instead of an `extension ValidationRouter`) so same-module test mocks can
+// override them. Swift does not allow overriding methods declared in extensions of
+// a same-module class unless they are `@objc`, and these methods' signatures
+// (optional closures, async-throws, Swift protocol parameters) are not @objc-compatible.
+// swiftlint:disable:next type_body_length
 @MainActor class ValidationRouter {
     weak var navigationController: TruoraNavigationController?
 
     private var validationId: String?
-    var uploadUrl: String?
-    var frontUploadUrl: String?
-    var reverseUploadUrl: String?
+    private var uploadUrl: String?
+    private var frontUploadUrl: String?
+    private var reverseUploadUrl: String?
     private var enrollmentTask: Task<Void, Error>?
     private weak var documentFeedbackViewController: UIViewController?
+    private weak var invoiceFeedbackViewController: UIViewController?
+
+    /// Raw bytes of the most recently uploaded/captured invoice file, retained so the
+    /// Result → InvoiceFeedback transition can render a preview of what the user sent.
+    /// For PDFs we store the rendered first-page PNG here (see `fileSelected`).
+    var invoiceCapturedImageData: Data?
+
+    /// `validation_id` of the most recent failed invoice validation that the user chose
+    /// to retry. Set by `ResultPresenter` before navigating to `InvoiceFeedback`.
+    /// Consumed (and cleared) by `InvoiceInstructionsPresenter.createValidation` when
+    /// the user lands back on Instructions — it becomes the `retry_of_id` on the next
+    /// `POST /validations` so the backend preserves `remaining_retries` across the chain
+    /// and returns a fresh upload URL.
+    var pendingInvoiceRetryValidationId: String?
 
     init(navigationController: TruoraNavigationController) {
         self.navigationController = navigationController
@@ -51,12 +74,7 @@ private var routerAssociatedKey: UInt8 = 0
         }
 
         if let uploadUrl {
-            guard !uploadUrl.isEmpty else {
-                throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "Upload URL cannot be empty"))
-            }
-            guard let url = URL(string: uploadUrl), url.scheme != nil else {
-                throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "Upload URL is not valid"))
-            }
+            try validateUploadUrl(uploadUrl, fieldDescription: "Upload URL")
         }
         self.validationId = validationId
         self.uploadUrl = uploadUrl
@@ -114,16 +132,9 @@ private var routerAssociatedKey: UInt8 = 0
             throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
         }
 
-        guard !frontUploadUrl.isEmpty, let url = URL(string: frontUploadUrl), url.scheme != nil else {
-            throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "Front upload URL is not valid"))
-        }
-
+        try validateUploadUrl(frontUploadUrl, fieldDescription: "Front upload URL")
         if let reverseUploadUrl {
-            guard !reverseUploadUrl.isEmpty, let url = URL(string: reverseUploadUrl), url.scheme != nil else {
-                throw TruoraException.sdk(
-                    SDKError(type: .invalidConfiguration, details: "Reverse upload URL is not valid")
-                )
-            }
+            try validateUploadUrl(reverseUploadUrl, fieldDescription: "Reverse upload URL")
         }
 
         self.validationId = validationId
@@ -158,34 +169,26 @@ private var routerAssociatedKey: UInt8 = 0
     }
 
     func dismissDocumentFeedback(completion: (() -> Void)? = nil) {
-        guard let navController = navigationController else {
-            completion?()
-            return
-        }
-
-        guard let presented = navController.presentedViewController else {
-            completion?()
-            return
-        }
-
-        guard let feedbackVC = documentFeedbackViewController, presented === feedbackVC else {
-            debugLog(
-                "⚠️ ValidationRouter: Not dismissing presented VC because it is not DocumentFeedback"
-            )
-            completion?()
-            return
-        }
-
-        presented.dismiss(animated: true) { [weak self] in
-            self?.documentFeedbackViewController = nil
-            completion?()
-        }
+        dismissPresentedFeedback(
+            expected: documentFeedbackViewController,
+            feedbackName: "DocumentFeedback",
+            onDismissed: { [weak self] in self?.documentFeedbackViewController = nil },
+            completion: completion
+        )
     }
 
     func dismissFlow() {
         enrollmentTask?.cancel()
         enrollmentTask = nil
-        navigationController?.dismiss(animated: true)
+        guard let navController = navigationController else { return }
+        // Dismiss from the nav's presenter (host app VC) so any modal currently
+        // on top of the nav (e.g. InvoiceFeedback) is torn down alongside the
+        // nav in a single animation. Calling `navController.dismiss(...)` with
+        // a modal on top would only remove that modal and leave the nav (and
+        // its Result "Verificando" screen) visible, stranding the user inside
+        // the SDK.
+        let dismisser = navController.presentingViewController ?? navController
+        dismisser.dismiss(animated: true)
     }
 
     func handleError(_ error: TruoraException) {
@@ -197,56 +200,330 @@ private var routerAssociatedKey: UInt8 = 0
         self.enrollmentTask = task
     }
 
+    // MARK: - Single-Use Upload URL Accessors
+
+    /// Consumes the upload URL, returning its value and clearing it so it cannot be reused.
+    func consumeUploadUrl() -> String? {
+        guard let url = uploadUrl else {
+            debugLog("⚠️ ValidationRouter: Upload URL already consumed or never set")
+            return nil
+        }
+        uploadUrl = nil
+        debugLog("🔒 ValidationRouter: Upload URL consumed and cleared")
+        return url
+    }
+
+    /// Consumes the front upload URL, returning its value and clearing it.
+    func consumeFrontUploadUrl() -> String? {
+        guard let url = frontUploadUrl else {
+            debugLog("⚠️ ValidationRouter: Front upload URL already consumed or never set")
+            return nil
+        }
+        frontUploadUrl = nil
+        debugLog("🔒 ValidationRouter: Front upload URL consumed and cleared")
+        return url
+    }
+
+    /// Consumes the reverse upload URL, returning its value and clearing it.
+    func consumeReverseUploadUrl() -> String? {
+        guard let url = reverseUploadUrl else {
+            debugLog("⚠️ ValidationRouter: Reverse upload URL already consumed or never set")
+            return nil
+        }
+        reverseUploadUrl = nil
+        debugLog("🔒 ValidationRouter: Reverse upload URL consumed and cleared")
+        return url
+    }
+
     func handleCancellation(loadingType: ResultLoadingType) {
-        // Show alert
-        guard let navController = navigationController,
-              navController.viewIfLoaded?.window != nil else {
-            debugLog(
-                "⚠️ ValidationRouter: Cannot present cancel alert - navigation controller not in view hierarchy"
-            )
+        presentCancelAlert(
+            on: navigationController,
+            missingPresenterMessage:
+            "⚠️ ValidationRouter: Cannot present cancel alert - navigation controller not in view hierarchy"
+        ) { [weak self] in
+            guard let self else { return }
+            self.enrollmentTask?.cancel()
+            do {
+                // Empty validationId is intentional for cancellation — Result shows
+                // failure UI and notifies the delegate with `.canceled`.
+                try self.navigateToResult(
+                    validationId: "",
+                    loadingType: loadingType,
+                    isCanceled: true
+                )
+            } catch {
+                debugLog("⚠️ ValidationRouter: Failed to navigate to cancel result: \(error)")
+                ValidationConfig.shared.delegate?(.canceled(nil))
+                self.dismissFlow()
+            }
+        }
+    }
+
+    // MARK: - Invoice Navigation
+
+    func navigateToInvoiceInstructions() throws {
+        guard let navController = navigationController else {
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
+        }
+        let invoiceInstructionsViewController = try InvoiceInstructionsConfigurator.buildModule(
+            router: self
+        )
+        navController.pushViewController(invoiceInstructionsViewController, animated: true)
+    }
+
+    func navigateToInvoiceFeedback(
+        feedback: FeedbackScenario,
+        capturedImageData: Data?,
+        retriesLeft: Int,
+        retryBehavior: InvoiceFeedbackRetryBehavior = .dismissOnly
+    ) throws {
+        guard let navController = navigationController else {
+            throw TruoraException.sdk(SDKError(type: .internalError, details: "Navigation controller is nil"))
+        }
+        let feedbackViewController = InvoiceFeedbackConfigurator.buildModule(
+            router: self,
+            feedback: feedback,
+            capturedImageData: capturedImageData,
+            retriesLeft: retriesLeft,
+            retryBehavior: retryBehavior
+        )
+        invoiceFeedbackViewController = feedbackViewController
+        navController.present(feedbackViewController, animated: true)
+    }
+
+    func dismissInvoiceFeedback(completion: (() -> Void)? = nil) {
+        dismissPresentedFeedback(
+            expected: invoiceFeedbackViewController,
+            feedbackName: "InvoiceFeedback",
+            onDismissed: { [weak self] in self?.invoiceFeedbackViewController = nil },
+            completion: completion
+        )
+    }
+
+    /// Dismiss InvoiceFeedback modal, then pop back to InvoiceInstructions.
+    /// Used after polling detects a declined reason — the user retries from InvoiceInstructions.
+    /// Nav stack is [InvoiceInstructions, Result]. Pops Result to land on InvoiceInstructions.
+    ///
+    /// Order matters: pop Result from the nav stack *before* dismissing the modal so the
+    /// dismiss animation reveals Instructions directly. Reversing the order flashes the
+    /// Result "Verificando" screen for the duration of the pop animation.
+    func dismissInvoiceFeedbackAndPopToIntro() {
+        navigationController?.popViewController(animated: false)
+        dismissInvoiceFeedback(completion: nil)
+    }
+
+    /// Shows the "Cancelar validación" confirmation on top of the currently-presented
+    /// InvoiceFeedback modal (not on the nav controller). Dismiss + navigate only happen
+    /// if the user confirms — tapping "No, volver" keeps them on the feedback screen.
+    ///
+    /// On confirm we exit the SDK flow directly via `dismissFlow()` + `.canceled` delegate,
+    /// skipping any intermediate screen. `dismissFlow()` handles the case where this
+    /// feedback modal is still presented on top of the nav — it tears the whole SDK stack
+    /// down from the nav's presenter in one animation.
+    func handleInvoiceFeedbackCancellation() {
+        presentCancelAlert(
+            on: invoiceFeedbackViewController,
+            missingPresenterMessage:
+            "⚠️ ValidationRouter: Cannot present cancel alert — feedback VC not on screen"
+        ) { [weak self] in
+            guard let self else { return }
+            // Clear retry state so any stray re-appear on Instructions doesn't
+            // trigger a chained `retry_of_id` createValidation mid-cancel.
+            self.pendingInvoiceRetryValidationId = nil
+            self.invoiceCapturedImageData = nil
+            self.enrollmentTask?.cancel()
+            ValidationConfig.shared.delegate?(.canceled(nil))
+            self.dismissFlow()
+        }
+    }
+
+    /// Pops Result off the navigation stack so the user lands back on Instructions.
+    /// Used by `InvoiceInstructionsPresenter` when the file upload fails and we want
+    /// the user to be able to retry from the Instructions screen.
+    ///
+    /// Awaits the pop transition via `CATransaction` so callers can reliably show an
+    /// alert or update state on Instructions *after* the animation finishes — without
+    /// this, the error alert could try to present while Result was still visible or
+    /// while the view backing Instructions had not re-rendered.
+    func popToInvoiceInstructions() async {
+        guard let navController = navigationController else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            CATransaction.begin()
+            CATransaction.setCompletionBlock {
+                continuation.resume()
+            }
+            navController.popViewController(animated: true)
+            CATransaction.commit()
+        }
+    }
+
+    // MARK: - Invoice File Picker / Camera
+
+    func presentInvoiceFilePicker(presenter: InvoiceInstructionsViewToPresenter) {
+        guard let navController = navigationController else { return }
+
+        let documentTypes = InvoiceFilePickerDelegate.supportedDocumentTypes
+        let picker = UIDocumentPickerViewController(documentTypes: documentTypes, in: .import)
+        let delegate = InvoiceFilePickerDelegate(presenter: presenter)
+        // Retain delegate for the lifetime of the picker via associated object
+        objc_setAssociatedObject(picker, &invoicePickerDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        picker.delegate = delegate
+        picker.allowsMultipleSelection = false
+        navController.present(picker, animated: true)
+    }
+
+    func presentInvoiceCamera(presenter: InvoiceInstructionsViewToPresenter) {
+        guard let navController = navigationController else { return }
+
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            debugLog("⚠️ ValidationRouter: Camera not available on this device")
+            Task { await presenter.pickerCancelled() }
             return
         }
 
+        // UIImagePickerController doesn't surface a denied-permission error — it just
+        // shows a black preview. Gate on AVCaptureDevice authorization so the user
+        // gets the standard "Go to Settings" alert instead of a dead screen.
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            debugLog("🟢 ValidationRouter: Invoice camera authorized, presenting picker")
+            presentInvoiceImagePicker(on: navController, presenter: presenter)
+        case .notDetermined:
+            debugLog("🟡 ValidationRouter: Invoice camera permission not determined, requesting access")
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if granted {
+                        debugLog("🟢 ValidationRouter: Invoice camera permission granted, presenting picker")
+                        self.presentInvoiceImagePicker(on: navController, presenter: presenter)
+                    } else {
+                        debugLog("⚠️ ValidationRouter: Invoice camera permission denied by user")
+                        self.presentCameraPermissionDeniedAlert(on: navController, presenter: presenter)
+                    }
+                }
+            }
+        case .denied, .restricted:
+            debugLog("⚠️ ValidationRouter: Invoice camera permission denied/restricted, showing settings alert")
+            presentCameraPermissionDeniedAlert(on: navController, presenter: presenter)
+        @unknown default:
+            debugLog("⚠️ ValidationRouter: Unknown camera authorization status, cancelling")
+            Task { await presenter.pickerCancelled() }
+        }
+    }
+}
+
+// MARK: - Private Helpers
+
+/// Internal helpers shared by the routing methods. Kept in an extension so they
+/// don't count toward `type_body_length` on the class — the class body is reserved
+/// for the methods that same-module test mocks need to override.
+private extension ValidationRouter {
+    /// Presents the generic "Cancelar validación" confirmation alert on the given
+    /// view controller. Runs `onConfirm` if the user taps confirm; logs and returns
+    /// if the presenter isn't currently in the view hierarchy.
+    func presentCancelAlert(
+        on presenter: UIViewController?,
+        missingPresenterMessage: String,
+        onConfirm: @escaping () -> Void
+    ) {
+        guard let presenter, presenter.viewIfLoaded?.window != nil else {
+            debugLog(missingPresenterMessage)
+            return
+        }
         let alert = UIAlertController(
             title: TruoraLocalization.string(forKey: LocalizationKeys.cancelAlertTitle),
             message: TruoraLocalization.string(forKey: LocalizationKeys.cancelAlertMessage),
             preferredStyle: .alert
         )
-
-        // Cancel button - dismisses alert and stays in flow
         alert.addAction(
             UIAlertAction(
                 title: TruoraLocalization.string(forKey: LocalizationKeys.cancelAlertCancel),
                 style: .cancel
             )
         )
-
-        // OK button - confirms cancellation and navigates to failure result
         alert.addAction(
             UIAlertAction(
                 title: TruoraLocalization.string(forKey: LocalizationKeys.cancelAlertConfirm),
                 style: .default
-            ) { [weak self] _ in
-                guard let self else { return }
-                // Cancel any ongoing async work (e.g., reference face enrollment)
-                self.enrollmentTask?.cancel()
-                do {
-                    // Navigate to Result screen with canceled state.
-                    // Empty validationId is intentional for cancellation - Result screen
-                    // will show failure UI and notify delegate with .canceled result.
-                    try self.navigateToResult(
-                        validationId: "",
-                        loadingType: loadingType,
-                        isCanceled: true
-                    )
-                } catch {
-                    // Fallback: dismiss directly if navigation fails
-                    debugLog("⚠️ ValidationRouter: Failed to navigate to cancel result: \(error)")
-                    ValidationConfig.shared.delegate?(.canceled(nil))
-                    self.dismissFlow()
-                }
-            }
+            ) { _ in onConfirm() }
         )
+        presenter.present(alert, animated: true)
+    }
+
+    /// Dismisses a modal feedback view iff it matches `expected`. Invokes
+    /// `completion` either way — if nothing matches we skip the dismiss but still
+    /// let the caller continue. `onDismissed` runs only on the real dismiss path
+    /// and is where callers clear their weak reference.
+    func dismissPresentedFeedback(
+        expected: UIViewController?,
+        feedbackName: String,
+        onDismissed: @escaping () -> Void,
+        completion: (() -> Void)?
+    ) {
+        guard let navController = navigationController,
+              let presented = navController.presentedViewController else {
+            completion?()
+            return
+        }
+        guard let expected, presented === expected else {
+            debugLog(
+                "⚠️ ValidationRouter: Not dismissing presented VC because it is not \(feedbackName)"
+            )
+            completion?()
+            return
+        }
+        presented.dismiss(animated: true) {
+            onDismissed()
+            completion?()
+        }
+    }
+
+    /// Throws `invalidConfiguration` if `url` is empty or not a parseable absolute URL.
+    func validateUploadUrl(_ url: String, fieldDescription: String) throws {
+        guard !url.isEmpty, let parsed = URL(string: url), parsed.scheme != nil else {
+            throw TruoraException.sdk(
+                SDKError(type: .invalidConfiguration, details: "\(fieldDescription) is not valid")
+            )
+        }
+    }
+
+    func presentInvoiceImagePicker(
+        on navController: UINavigationController,
+        presenter: InvoiceInstructionsViewToPresenter
+    ) {
+        let imagePicker = UIImagePickerController()
+        let delegate = InvoiceCameraDelegate(presenter: presenter)
+        objc_setAssociatedObject(imagePicker, &invoicePickerDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        imagePicker.delegate = delegate
+        imagePicker.sourceType = .camera
+        imagePicker.cameraCaptureMode = .photo
+        navController.present(imagePicker, animated: true)
+    }
+
+    func presentCameraPermissionDeniedAlert(
+        on navController: UINavigationController,
+        presenter: InvoiceInstructionsViewToPresenter
+    ) {
+        let alert = UIAlertController(
+            title: TruoraLocalization.string(forKey: LocalizationKeys.cameraPermissionDeniedTitle),
+            message: TruoraLocalization.string(forKey: LocalizationKeys.cameraPermissionDeniedDescription),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: TruoraLocalization.string(forKey: LocalizationKeys.commonGoToSettings),
+            style: .default
+        ) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+            Task { await presenter.pickerCancelled() }
+        })
+        alert.addAction(UIAlertAction(
+            title: TruoraLocalization.string(forKey: LocalizationKeys.commonCancel),
+            style: .cancel
+        ) { _ in
+            Task { await presenter.pickerCancelled() }
+        })
         navController.present(alert, animated: true)
     }
 }
@@ -276,6 +553,8 @@ extension ValidationRouter {
                 try getPassiveIntroViewController(router: router)
             case .document:
                 try getDocumentSelectionViewController(router: router)
+            case .invoice:
+                try getInvoiceInstructionsViewController(router: router)
             }
 
         navController.viewControllers = [viewController]
@@ -356,6 +635,14 @@ extension ValidationRouter {
     try DocumentSelectionConfigurator.buildModule(router: router)
 }
 
+// MARK: - Invoice Instructions View Controller
+
+@MainActor private func getInvoiceInstructionsViewController(
+    router: ValidationRouter
+) throws -> UIViewController {
+    try InvoiceInstructionsConfigurator.buildModule(router: router)
+}
+
 // MARK: - Reference Face Enrollment
 
 private func startReferenceFaceEnrollment() -> Task<Void, Error>? {
@@ -430,6 +717,10 @@ private func performEnrollment(
 
     guard let uploadUrl = enrollment.fileUploadLink else {
         throw TruoraException.network(message: "No file upload link in enrollment response", underlyingError: nil)
+    }
+
+    guard UploadUrlValidator.isTruoraFilesUploadUrl(uploadUrl) else {
+        throw TruoraException.sdk(SDKError(type: .uploadFailed, details: "Invalid file upload link"))
     }
 
     try await uploadReferenceFaceFile(
@@ -545,6 +836,154 @@ private func waitForEnrollmentReady(
     debugLog("⚠️ ValidationRouter: Enrollment not ready after \(total) attempts, proceeding")
 }
 
+// MARK: - Invoice File Picker Delegate
+
+/// Handles UIDocumentPickerViewController callbacks for invoice file selection.
+/// Retained via associated object on the picker for the duration of the presentation.
+final class InvoiceFilePickerDelegate: NSObject, UIDocumentPickerDelegate {
+    private weak var presenter: InvoiceInstructionsViewToPresenter?
+
+    /// Max file size for image uploads (JPG / PNG / GIF / HEIC): 20 MB.
+    static let maxImageFileSize = 20 * 1024 * 1024
+    /// Max file size for document uploads (PDF / TXT / CSV / DOC / XLS / …): 100 MB.
+    static let maxDocumentFileSize = 100 * 1024 * 1024
+
+    /// Extensions treated as images for the 20 MB limit (kept in sync with the
+    /// MIME switch in `contentType(for:)`).
+    private static let imageExtensions: Set<String> = [
+        "jpg", "jpeg", "png", "gif", "heic", "heif"
+    ]
+
+    /// Supported UTI strings for invoice file upload: PDF plus any image type
+    /// (`public.image` covers JPEG, PNG, HEIC, GIF, …).
+    static let supportedDocumentTypes: [String] = [
+        kUTTypePDF as String,
+        kUTTypeImage as String
+    ]
+
+    /// Picks the right byte ceiling based on the file's extension — images cap at
+    /// 20 MB (photos are never that big in practice), documents at 100 MB.
+    static func maxFileSize(for url: URL) -> Int {
+        let ext = url.pathExtension.lowercased()
+        return imageExtensions.contains(ext) ? maxImageFileSize : maxDocumentFileSize
+    }
+
+    init(presenter: InvoiceInstructionsViewToPresenter) {
+        self.presenter = presenter
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else {
+            Task { await presenter?.pickerCancelled() }
+            return
+        }
+
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let maxSize = Self.maxFileSize(for: url)
+
+            guard data.count <= maxSize else {
+                let mb = maxSize / (1024 * 1024)
+                debugLog("❌ InvoiceFilePicker: File exceeds \(mb)MB limit (\(data.count) bytes)")
+                Task {
+                    await presenter?.fileSelectionFailed(
+                        message: "File exceeds the \(mb) MB limit. Please pick a smaller file."
+                    )
+                }
+                return
+            }
+
+            let contentType = Self.contentType(for: url)
+            Task { await presenter?.fileSelected(data: data, contentType: contentType) }
+        } catch {
+            debugLog("❌ InvoiceFilePicker: Failed to read file: \(error)")
+            Task {
+                await presenter?.fileSelectionFailed(
+                    message: "Could not read the selected file. Please try again."
+                )
+            }
+        }
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        Task { await presenter?.pickerCancelled() }
+    }
+
+    /// Determines content type from file extension.
+    static func contentType(for url: URL) -> String {
+        let ext = url.pathExtension.lowercased()
+        switch ext {
+        case "pdf": return "application/pdf"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
+        case "gif": return "image/gif"
+        case "csv": return "text/csv"
+        case "txt": return "text/plain"
+        case "doc": return "application/msword"
+        case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        case "xls": return "application/vnd.ms-excel"
+        case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        default: return "application/octet-stream"
+        }
+    }
+}
+
+// MARK: - Invoice Camera Delegate
+
+/// Handles UIImagePickerController callbacks for invoice photo capture.
+/// Retained via associated object on the picker for the duration of the presentation.
+final class InvoiceCameraDelegate: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    private weak var presenter: InvoiceInstructionsViewToPresenter?
+
+    init(presenter: InvoiceInstructionsViewToPresenter) {
+        self.presenter = presenter
+    }
+
+    func imagePickerController(
+        _ picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+    ) {
+        picker.dismiss(animated: true)
+
+        guard let image = info[.originalImage] as? UIImage,
+              let jpegData = image.jpegData(compressionQuality: 0.85) else {
+            debugLog("❌ InvoiceCamera: Failed to get image data")
+            Task {
+                await presenter?.fileSelectionFailed(
+                    message: "Could not process the captured photo. Please try again."
+                )
+            }
+            return
+        }
+
+        // Camera output is always a JPEG, so apply the 20 MB image ceiling
+        // (same limit as picked JPG/PNG/HEIC files).
+        let maxSize = InvoiceFilePickerDelegate.maxImageFileSize
+        guard jpegData.count <= maxSize else {
+            let mb = maxSize / (1024 * 1024)
+            debugLog("❌ InvoiceCamera: Photo exceeds \(mb)MB limit (\(jpegData.count) bytes)")
+            Task {
+                await presenter?.fileSelectionFailed(
+                    message: "Photo exceeds the \(mb) MB limit. Please try again."
+                )
+            }
+            return
+        }
+
+        Task { await presenter?.fileSelected(data: jpegData, contentType: "image/jpeg") }
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+        Task { await presenter?.pickerCancelled() }
+    }
+}
+
 // MARK: - Test Helpers
 
 #if DEBUG
@@ -555,6 +994,22 @@ extension ValidationRouter {
 
     func getPassiveIntroViewControllerForTest() throws -> UIViewController {
         try getPassiveIntroViewController(router: self)
+    }
+
+    var invoiceFeedbackViewControllerForTest: UIViewController? {
+        invoiceFeedbackViewController
+    }
+
+    func setUploadUrlForTest(_ url: String?) {
+        uploadUrl = url
+    }
+
+    func setFrontUploadUrlForTest(_ url: String?) {
+        frontUploadUrl = url
+    }
+
+    func setReverseUploadUrlForTest(_ url: String?) {
+        reverseUploadUrl = url
     }
 }
 #endif

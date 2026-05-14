@@ -117,6 +117,10 @@ struct CameraViewWrapper: UIViewRepresentable {
             cameraView.resumeCamera()
         }
 
+        func convertVisionBoundingBoxToViewRect(_ visionBox: CGRect) -> CGRect? {
+            cameraView?.convertVisionBoundingBoxToViewRect(visionBox)
+        }
+
         func cameraReady() {
             viewModel.cameraReady()
         }
@@ -164,4 +168,5 @@ protocol CameraViewDelegate: AnyObject {
     func stopCamera()
     func pauseCamera()
     func resumeCamera()
+    func convertVisionBoundingBoxToViewRect(_ visionBox: CGRect) -> CGRect?
 }

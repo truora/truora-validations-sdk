@@ -27,6 +27,11 @@ import UIKit
     /// Tracks if a recording is currently in progress to prevent multiple clicks
     @Published var isRecordingInProgress: Bool = false
 
+    /// Detected face rectangles in view-space points, one per face when more than one
+    /// person is on-frame. Empty otherwise. Consumed by `PassiveCaptureOverlayView`
+    /// to render per-face ovals.
+    @Published var detectedFaceBoxes: [CGRect] = []
+
     var presenter: PassiveCaptureViewToPresenter?
     weak var cameraViewDelegate: CameraViewDelegate?
     private var didLoadOnce: Bool = false
@@ -202,5 +207,15 @@ extension PassiveCaptureViewModel: PassiveCapturePresenterToView {
 
     func resetRecordingInProgress() {
         isRecordingInProgress = false
+    }
+
+    func updateDetectedFaceBoundingBoxes(_ visionBoxes: [CGRect]) {
+        guard !visionBoxes.isEmpty else {
+            detectedFaceBoxes = []
+            return
+        }
+        detectedFaceBoxes = visionBoxes.compactMap {
+            cameraViewDelegate?.convertVisionBoundingBoxToViewRect($0)
+        }
     }
 }

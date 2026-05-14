@@ -2,18 +2,28 @@ import Foundation
 
 /// Orchestrates layered injection attack detection using a defense-in-depth approach.
 ///
-/// Detection runs in 3 layers:
-/// - **Layer 1 (Init):** Environment (simulator) + Jailbreak checks. Run once at SDK initialization.
-/// - **Layer 2 (Camera Setup):** Camera device checks. Run when the camera session starts.
-/// - **Layer 3 (Runtime):** Jailbreak re-check. Run periodically to catch tools activated after init.
+/// Each detection layer runs the **full checker suite** (Environment + Camera + Jailbreak)
+/// and stores the result in its own slot. This way jailbreak/runtime tooling is detected
+/// from the first call (SDK init) instead of waiting for the runtime layer to fire.
 ///
-/// Risk factors from all layers accumulate into a single `TrustResult` with a penalty-based score.
-/// Thread-safe via `NSLock` to support calls from different lifecycle points.
+/// - **Layer 1 (Init):** full checker suite at SDK initialization.
+/// - **Layer 2 (Camera Setup):** full checker suite re-run when the camera session starts.
+/// - **Layer 3 (Runtime):** full checker suite re-run periodically during capture.
+///
+/// Layers occupy independent slots, so re-running a layer **replaces** its slot rather than
+/// accumulating duplicates. `computeTrustResult()` flattens the latest slots into a single
+/// `TrustResult`. Thread-safe via `NSLock`.
 final class InjectionDetector: @unchecked Sendable {
     private let systemInfo: SystemInfoProviding
     private let cameraInfo: CameraInfoProviding
     private let lock = NSLock()
-    private var accumulatedFactors: [RiskFactor] = []
+    private var layerFactors: [Layer: [RiskFactor]] = [:]
+
+    enum Layer: String {
+        case initial = "init"
+        case camera
+        case runtime
+    }
 
     init(
         systemInfo: SystemInfoProviding = DefaultSystemInfoProvider(),
@@ -25,45 +35,43 @@ final class InjectionDetector: @unchecked Sendable {
 
     // MARK: - Layer 1: Init Checks
 
-    /// Runs environment (simulator) and jailbreak checks.
-    /// Call once during SDK initialization.
+    /// Runs the full checker suite at SDK initialization. Detects simulator, jailbreak
+    /// tooling and virtual camera signals before capture starts.
     @discardableResult
     func runInitChecks() -> [RiskFactor] {
-        let environmentFactors = EnvironmentChecker(systemInfo: systemInfo).check()
-        let jailbreakFactors = JailbreakChecker(systemInfo: systemInfo).check()
-        let newFactors = environmentFactors + jailbreakFactors
-        appendFactors(newFactors)
-        return newFactors
+        let factors = runAllCheckers()
+        store(factors, for: .initial)
+        return factors
     }
 
     // MARK: - Layer 2: Camera Checks
 
-    /// Runs camera device checks for virtual/external cameras.
-    /// Call when the camera session starts.
+    /// Runs the full checker suite when the camera session starts. Replaces the camera
+    /// slot so re-runs do not double-count factors.
     @discardableResult
     func runCameraChecks() -> [RiskFactor] {
-        let newFactors = CameraChecker(cameraInfo: cameraInfo).check()
-        appendFactors(newFactors)
-        return newFactors
+        let factors = runAllCheckers()
+        store(factors, for: .camera)
+        return factors
     }
 
     // MARK: - Layer 3: Runtime Checks
 
-    /// Re-runs jailbreak checks to catch tools activated after init.
-    /// Call periodically during capture (e.g., every 30 seconds).
+    /// Runs the full checker suite periodically during capture (e.g., every 30 seconds)
+    /// to catch tooling activated mid-session.
     @discardableResult
     func runRuntimeChecks() -> [RiskFactor] {
-        let newFactors = JailbreakChecker(systemInfo: systemInfo).check()
-        appendFactors(newFactors)
-        return newFactors
+        let factors = runAllCheckers()
+        store(factors, for: .runtime)
+        return factors
     }
 
     // MARK: - Trust Result
 
-    /// Computes the trust result from all accumulated risk factors.
+    /// Computes the trust result from the latest snapshot of every layer slot.
     func computeTrustResult() -> TrustResult {
         lock.lock()
-        let factors = accumulatedFactors
+        let factors = layerFactors.values.flatMap { $0 }
         lock.unlock()
         return TrustResult(riskFactors: factors)
     }
@@ -71,7 +79,21 @@ final class InjectionDetector: @unchecked Sendable {
     /// Clears all accumulated risk factors, resetting the trust score to 100.
     func reset() {
         lock.lock()
-        accumulatedFactors.removeAll()
+        layerFactors.removeAll()
+        lock.unlock()
+    }
+
+    // MARK: - Private
+
+    private func runAllCheckers() -> [RiskFactor] {
+        EnvironmentChecker(systemInfo: systemInfo).check() +
+            CameraChecker(cameraInfo: cameraInfo).check() +
+            JailbreakChecker(systemInfo: systemInfo).check()
+    }
+
+    private func store(_ factors: [RiskFactor], for layer: Layer) {
+        lock.lock()
+        layerFactors[layer] = factors
         lock.unlock()
     }
 
@@ -102,14 +124,5 @@ final class InjectionDetector: @unchecked Sendable {
             blockingThreshold: blockingThreshold,
             bridge: bridge
         )
-    }
-
-    // MARK: - Private
-
-    private func appendFactors(_ factors: [RiskFactor]) {
-        guard !factors.isEmpty else { return }
-        lock.lock()
-        accumulatedFactors.append(contentsOf: factors)
-        lock.unlock()
     }
 }

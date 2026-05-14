@@ -11,6 +11,7 @@
 "passive_capture_feedback_multiple_people" = "Avoid appearing with anyone else";
 "passive_capture_feedback_hidden_face" = "Uncover your face";
 "passive_capture_feedback_center_face" = "Center your face in the oval";
+"passive_capture_feedback_look_forward" = "Look at the camera";
 "passive_capture_feedback_recording" = "Don't move!\nRecording";
 "passive_capture_record_video" = "record video";
 "passive_capture_cannot_record" = "We couldn't record.\nPress \"%@\".";
@@ -190,6 +191,43 @@
 "desc_taxpayer_id" = "Taxpayer ID";
 "desc_co_taxpayer_id" = "Tax identification number";
 "desc_co_ptp" = "PPT (Temporal Protection Permit)";
+
+/* Invoice Instructions (country-specific) */
+"invoice_instructions_title_mx" = "Upload your proof of address";
+"invoice_instructions_title_co" = "Upload your invoice to verify information";
+"invoice_instructions_subtitle_prefix_mx" = "With a ";
+"invoice_instructions_validity_period" = "maximum validity of 3 months";
+"invoice_instructions_subtitle_suffix_mx" = " from the following providers:";
+"invoice_instructions_subtitle_co" = "We accept invoices from the following providers:";
+"invoice_instructions_upload_file" = "Upload file";
+"invoice_instructions_take_photo" = "Take photo";
+"invoice_instructions_creating_validation" = "Creating validation...";
+
+/* Invoice Feedback (country-specific titles) */
+"invoice_feedback_missing_text_title_mx" = "We couldn't read the data on your proof of address";
+"invoice_feedback_missing_text_title_co" = "We couldn't read the data on your invoice";
+"invoice_feedback_missing_text_desc" = "Make sure it is well lit, in focus, and all information is clearly visible.";
+"invoice_feedback_not_found_title_mx" = "We couldn't identify the proof of address";
+"invoice_feedback_not_found_title_co" = "We couldn't identify the invoice";
+"invoice_feedback_not_found_desc_prefix_mx" = "Make sure it is from ";
+"invoice_feedback_not_found_providers_mx" = "CFE, TELMEX, or Totalplay";
+"invoice_feedback_not_found_desc_suffix_mx" = " like the ones shown below:";
+"invoice_feedback_not_found_desc_prefix_co" = "Make sure it is from ";
+"invoice_feedback_not_found_providers_co" = "Alcanos, Metrogas, or Gases del Oriente";
+"invoice_feedback_not_found_desc_suffix_co" = " like the ones shown below:";
+"invoice_feedback_expired_title_mx" = "The proof of address has expired";
+"invoice_feedback_expired_title_co" = "The invoice has expired";
+"invoice_feedback_expired_desc_mx" = "Upload a proof of address with a maximum validity of 3 months.";
+"invoice_feedback_expired_desc_co" = "Upload an invoice with a maximum validity of 3 months.";
+"invoice_feedback_tips_link" = "Tips for a better photo";
+"invoice_feedback_retry" = "Try again";
+"invoice_feedback_retries_left" = "Retries available %@";
+"invoice_feedback_tips_title" = "Tips for a better photo";
+"invoice_feedback_tip_corners_mx" = "Make sure all four corners of the proof of address are visible.";
+"invoice_feedback_tip_corners_co" = "Make sure all four corners of the invoice are visible.";
+"invoice_feedback_tip_glare_mx" = "Avoid reflections or glare on the proof of address.";
+"invoice_feedback_tip_glare_co" = "Avoid reflections or glare on the invoice.";
+"invoice_feedback_tip_angle" = "Take the photo straight on, without an angle.";
 
 /* Cancel Alert */
 "cancel_alert_title" = "Cancel validation";

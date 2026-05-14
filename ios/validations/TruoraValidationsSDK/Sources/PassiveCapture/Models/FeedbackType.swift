@@ -14,5 +14,6 @@ enum FeedbackType: Hashable {
     case multiplePeople
     case hiddenFace
     case centerFace
+    case lookForward
     case recording
 }

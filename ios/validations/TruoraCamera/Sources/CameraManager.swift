@@ -25,6 +25,33 @@ class CameraManager: NSObject {
 
     var captureSession: AVCaptureSession?
     var videoPreviewLayer: AVCaptureVideoPreviewLayer?
+
+    /// Converts a Vision framework bounding box (normalized, origin at bottom-left)
+    /// into points inside the preview layer. Vision's Y-axis is flipped relative to
+    /// `AVCaptureVideoPreviewLayer.layerRectConverted(fromMetadataOutputRect:)`, which
+    /// expects a top-left origin; aspect-fill and rotation are handled by the preview
+    /// layer automatically. Front-camera mirroring is NOT applied by
+    /// `layerRectConverted`: callers using a mirrored preview connection (the default
+    /// for the front camera) and an unmirrored Vision pixel buffer must flip the
+    /// x-axis themselves based on `previewLayer.connection?.isVideoMirrored`. The
+    /// existing passive-capture flow runs Vision on the same connection AVCapture
+    /// uses for the preview, so the bounding box is already in the mirrored space.
+    /// Returns `nil` while the preview layer has no frame yet.
+    func convertVisionBoundingBoxToViewRect(_ visionBox: CGRect) -> CGRect? {
+        guard let previewLayer = videoPreviewLayer,
+              previewLayer.bounds.width > 0,
+              previewLayer.bounds.height > 0 else {
+            return nil
+        }
+        let flipped = CGRect(
+            x: visionBox.origin.x,
+            y: 1 - visionBox.origin.y - visionBox.height,
+            width: visionBox.width,
+            height: visionBox.height
+        )
+        return previewLayer.layerRectConverted(fromMetadataOutputRect: flipped)
+    }
+
     var imageOutput: AVCapturePhotoOutput?
     var videoOutput: AVCaptureMovieFileOutput?
     var videoDataOutput: AVCaptureVideoDataOutput?
@@ -174,11 +201,11 @@ class CameraManager: NSObject {
         // Fast and reliable for UI flow testing
         let results: [DetectionResult] = switch testImageName {
         case "test_face_single":
-            [DetectionResult(category: .face(landmarks: nil), boundingBox: .zero, confidence: 0.95)]
+            [DetectionResult(category: .face(landmarks: nil, yaw: nil), boundingBox: .zero, confidence: 0.95)]
         case "test_face_multiple":
             [
-                DetectionResult(category: .face(landmarks: nil), boundingBox: .zero, confidence: 0.9),
-                DetectionResult(category: .face(landmarks: nil), boundingBox: .zero, confidence: 0.8)
+                DetectionResult(category: .face(landmarks: nil, yaw: nil), boundingBox: .zero, confidence: 0.9),
+                DetectionResult(category: .face(landmarks: nil, yaw: nil), boundingBox: .zero, confidence: 0.8)
             ]
         default:
             []

@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.3.0-alpha.1 - 2026-05-14
+
+### Added
+* Invoice validation flow
+* Multi-face oval detection in face capture
+* Block face autocapture when the subject is facing sideways
+
+### Changed
+* Strengthen injection detection coverage across validation flows
+
+## 1.2.6 - 2026-04-09
+
+* Fix resource lookup regression introduced in 1.2.6-beta.1
+
+## 1.2.6-beta.1 - 2026-04-08
+
+* Drop `static_framework` from podspecs to fix Flutter add-to-app resource bundling
+* Add configuration API to set allowed document types and countries per validation
+
+## 1.2.5 - 2026-03-30
+
+* Restore audio playback during document capture
+* Enable SDK logs by default
+
+## 1.2.2 - 2026-03-27
+
+* Use `os_log` for iOS 13 compatibility
+* Add flag images for Bolivia and Ecuador
+
+## 1.2.0 - 2026-03-26
+
+* Add support for Ecuador and Bolivia (countries and national ID documents)
+* Remove debug log level
+
+## 1.1.2 - 2026-03-20
+
+* Skip enrollment polling when an enrollment already exists
+
+## 1.1.1 - 2026-03-19
+
+* Tighten injection detection enforcement
+
+## 1.1.0 - 2026-03-16
+
+* Add injection detection on iOS
+* Add Portuguese and English document capture audio
+
 ## 1.0.0 - 2026-03-05
 
 * Stable release of the Truora Validations SDK for production use

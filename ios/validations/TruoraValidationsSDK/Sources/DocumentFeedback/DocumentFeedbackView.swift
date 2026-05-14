@@ -111,6 +111,15 @@ struct DocumentFeedbackView: View {
             TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackFrontNotFoundTitle)
         case .backOfDocumentNotFound:
             TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackBackNotFoundTitle)
+        // These scenarios come from the invoice OCR / polling path (see
+        // `ResultPresenter.mapInvoiceDeclinedReason` and the invoice
+        // `failure_status` values). `DocumentCapturePresenter.mapReasonToScenario`
+        // never emits them, so this branch is unreachable in the Document flow —
+        // kept only so the switch is exhaustive over `FeedbackScenario`, which is
+        // shared with Invoice. The generic default copy is a safe fallback.
+        case .missingText, .documentNotRecognized, .documentHasExpired,
+             .wrongDocumentFound, .grayscaleImage:
+            TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackDefaultTitle)
         }
     }
 
@@ -128,6 +137,10 @@ struct DocumentFeedbackView: View {
             TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackFrontNotFoundDescription)
         case .backOfDocumentNotFound:
             TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackBackNotFoundDescription)
+        // Unreachable in the Document flow — see note on `feedbackTitle`.
+        case .missingText, .documentNotRecognized, .documentHasExpired,
+             .wrongDocumentFound, .grayscaleImage:
+            TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackNoDocumentDescription)
         }
     }
 
@@ -171,12 +184,13 @@ private struct FeedbackIconView: View {
 
     var iconName: String {
         switch feedback {
-        case .blurryImage, .lowLight: "eye.slash"
+        case .blurryImage, .lowLight, .grayscaleImage: "eye.slash"
         case .imageWithReflection: "sun.max.fill"
         case .faceNotFound: "person.fill.questionmark"
-        case .documentNotFound: "doc.text.magnifyingglass"
-        case .frontOfDocumentNotFound: "doc.text.magnifyingglass"
-        case .backOfDocumentNotFound: "doc.text.magnifyingglass"
+        case .documentNotFound, .frontOfDocumentNotFound, .backOfDocumentNotFound,
+             .wrongDocumentFound, .documentNotRecognized: "doc.text.magnifyingglass"
+        case .missingText: "doc.text"
+        case .documentHasExpired: "clock"
         }
     }
 

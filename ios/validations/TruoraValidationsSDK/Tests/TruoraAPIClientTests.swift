@@ -79,7 +79,7 @@ private final class APIURLProtocolStub: URLProtocol {
         {
             "validation_id": "test-id",
             "instructions": {
-                "file_upload_link": "https://example.com/upload"
+                "file_upload_link": "https://files.truora.com/upload"
             }
         }
         """
@@ -109,7 +109,7 @@ private final class APIURLProtocolStub: URLProtocol {
 
         // Then
         XCTAssertEqual(result.validationId, "test-id")
-        XCTAssertEqual(result.instructions?.fileUploadLink, "https://example.com/upload")
+        XCTAssertEqual(result.instructions?.fileUploadLink, "https://files.truora.com/upload")
     }
 
     func testGetValidation_success_returnsDetail() async throws {
@@ -146,6 +146,81 @@ private final class APIURLProtocolStub: URLProtocol {
         XCTAssertEqual(result.details?.faceRecognitionValidations?.confidenceScore, 0.95)
     }
 
+    // MARK: - Form Encoding Drift Guard
+
+    /// Guards against adding a field to `NativeValidationRequest` without also
+    /// emitting it from `TruoraAPIClient.encodeToFormData`. If this test fails
+    /// after you added a field, wire it into the encoder.
+    func testEncodeToFormData_includesAllNonNilFields() {
+        // Given — every optional/required field set to a distinct, decodable value
+        let request = NativeValidationRequest(
+            type: "document-validation",
+            country: "co",
+            accountId: "acc-123",
+            threshold: 0.75,
+            subvalidations: ["similarity", "passive_liveness"],
+            documentType: "invoice",
+            timeout: 60,
+            userAuthorized: true,
+            checkManualReviewAvailability: true,
+            retryOfId: "VLD-abc"
+        )
+
+        // When
+        let form = sut.encodeToFormData(request)
+        // Parse back so we don't rely on item order or URL-escaping details
+        var components = URLComponents()
+        components.query = form
+        let pairs = (components.queryItems ?? [])
+            .reduce(into: [String: [String]]()) { acc, item in
+                acc[item.name, default: []].append(item.value ?? "")
+            }
+
+        // Then — required fields
+        XCTAssertEqual(pairs["type"], ["document-validation"])
+        XCTAssertEqual(pairs["account_id"], ["acc-123"])
+        XCTAssertEqual(pairs["user_authorized"], ["true"])
+        XCTAssertEqual(pairs["check_manual_review_availability"], ["true"])
+
+        // Optional fields — every property present on the struct should be here.
+        XCTAssertEqual(pairs["country"], ["co"])
+        XCTAssertEqual(pairs["document_type"], ["invoice"])
+        XCTAssertEqual(pairs["threshold"], ["0.75"])
+        XCTAssertEqual(pairs["timeout"], ["60"])
+        XCTAssertEqual(pairs["retry_of_id"], ["VLD-abc"])
+        // Repeated key — array fields must encode as multiple URL items, not a joined string
+        XCTAssertEqual(pairs["subvalidations"]?.sorted(), ["passive_liveness", "similarity"])
+    }
+
+    func testEncodeToFormData_omitsNilOptionalFields() {
+        // Given — only the required fields
+        let request = NativeValidationRequest(
+            type: "face-recognition",
+            country: nil,
+            accountId: "acc-123",
+            threshold: nil,
+            subvalidations: nil,
+            documentType: nil,
+            timeout: nil,
+            userAuthorized: true,
+            checkManualReviewAvailability: true
+        )
+
+        // When
+        let form = sut.encodeToFormData(request)
+        var components = URLComponents()
+        components.query = form
+        let keys = Set((components.queryItems ?? []).map(\.name))
+
+        // Then — nil optionals stay out of the body so the backend uses its defaults
+        XCTAssertFalse(keys.contains("country"))
+        XCTAssertFalse(keys.contains("document_type"))
+        XCTAssertFalse(keys.contains("threshold"))
+        XCTAssertFalse(keys.contains("timeout"))
+        XCTAssertFalse(keys.contains("subvalidations"))
+        XCTAssertFalse(keys.contains("retry_of_id"))
+    }
+
     func testCreateEnrollment_success_returnsResponse() async throws {
         // Given
         let json = """
@@ -154,7 +229,7 @@ private final class APIURLProtocolStub: URLProtocol {
             "account_id": "acc-123",
             "status": "pending",
             "creation_date": "2025-01-01T00:00:00Z",
-            "file_upload_link": "https://example.com/enroll-upload"
+            "file_upload_link": "https://files.truora.com/enroll-upload"
         }
         """
         let data = try XCTUnwrap(json.data(using: .utf8))
@@ -178,7 +253,7 @@ private final class APIURLProtocolStub: URLProtocol {
 
         // Then
         XCTAssertEqual(result.enrollmentId, "enroll-id")
-        XCTAssertEqual(result.fileUploadLink, "https://example.com/enroll-upload")
+        XCTAssertEqual(result.fileUploadLink, "https://files.truora.com/enroll-upload")
     }
 
     func testUploadFile_success() async throws {

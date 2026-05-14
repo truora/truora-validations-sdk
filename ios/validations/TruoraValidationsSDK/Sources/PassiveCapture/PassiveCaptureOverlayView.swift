@@ -14,6 +14,7 @@ struct PassiveCaptureOverlayView: View {
     let countdown: Int
     let lastFrameData: Data?
     let uploadState: UploadState
+    let detectedFaceBoxes: [CGRect]
     let onAnimationFinished: () -> Void
 
     @EnvironmentObject var theme: TruoraTheme
@@ -57,7 +58,8 @@ struct PassiveCaptureOverlayView: View {
                 } else {
                     OvalCutoutView(
                         ovalWidth: ovalWidth,
-                        ovalHeight: ovalHeight
+                        ovalHeight: ovalHeight,
+                        detectedFaceBoxes: detectedFaceBoxes
                     )
                 }
 
@@ -123,7 +125,8 @@ struct PassiveCaptureOverlayView: View {
         feedback: .showFace,
         countdown: 0,
         lastFrameData: nil,
-        uploadState: .none
+        uploadState: .none,
+        detectedFaceBoxes: []
     ) {}
         .environmentObject(TruoraTheme())
 }
@@ -134,7 +137,8 @@ struct PassiveCaptureOverlayView: View {
         feedback: .recording,
         countdown: 0,
         lastFrameData: nil,
-        uploadState: .none
+        uploadState: .none,
+        detectedFaceBoxes: []
     ) {}
         .environmentObject(TruoraTheme())
 }
@@ -145,7 +149,8 @@ struct PassiveCaptureOverlayView: View {
         feedback: .none,
         countdown: 0,
         lastFrameData: UIImage(systemName: "person.fill")?.jpegData(compressionQuality: 0.8),
-        uploadState: .uploading
+        uploadState: .uploading,
+        detectedFaceBoxes: []
     ) {}
         .environmentObject(TruoraTheme())
 }
@@ -156,7 +161,8 @@ struct PassiveCaptureOverlayView: View {
         feedback: .showFace,
         countdown: 0,
         lastFrameData: nil,
-        uploadState: .none
+        uploadState: .none,
+        detectedFaceBoxes: []
     ) {}
         .environmentObject(TruoraTheme())
 }
@@ -167,7 +173,8 @@ struct PassiveCaptureOverlayView: View {
         feedback: .none,
         countdown: 0,
         lastFrameData: nil,
-        uploadState: .none
+        uploadState: .none,
+        detectedFaceBoxes: []
     ) {}
         .environmentObject(TruoraTheme())
 }

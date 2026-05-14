@@ -80,8 +80,8 @@ import XCTest
                     validationId: "validation-id",
                     instructions: NativeValidationInstructions(
                         fileUploadLink: nil,
-                        frontUrl: "https://example.com/front",
-                        reverseUrl: "https://example.com/reverse"
+                        frontUrl: "https://files.truora.com/front",
+                        reverseUrl: "https://files.truora.com/reverse"
                     )
                 )
             },

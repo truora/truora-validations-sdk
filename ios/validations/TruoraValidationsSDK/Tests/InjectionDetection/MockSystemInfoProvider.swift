@@ -4,13 +4,15 @@ import Foundation
 /// Configurable mock for `SystemInfoProviding` used in injection detection tests.
 ///
 /// All properties are settable via init for deterministic test scenarios.
+/// Properties are mutable so tests can simulate state changes between detection
+/// layer calls (e.g., a new jailbreak file appearing mid-session).
 final class MockSystemInfoProvider: SystemInfoProviding, @unchecked Sendable {
-    let isSimulator: Bool
-    let deviceModel: String
-    let simulatorDeviceName: String?
-    private let existingFiles: Set<String>
-    private let canWriteSandbox: Bool
-    let loadedDylibs: [String]
+    var isSimulator: Bool
+    var deviceModel: String
+    var simulatorDeviceName: String?
+    var existingFiles: Set<String>
+    var canWriteSandbox: Bool
+    var loadedDylibs: [String]
 
     init(
         isSimulator: Bool = false,

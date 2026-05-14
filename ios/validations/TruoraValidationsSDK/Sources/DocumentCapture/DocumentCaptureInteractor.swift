@@ -80,6 +80,16 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
             return
         }
 
+        if !UploadUrlValidator.isTruoraFilesUploadUrl(uploadUrl) {
+            Task {
+                await presenter.photoUploadFailed(
+                    side: side,
+                    error: .sdk(SDKError(type: .uploadFailed, details: "Invalid file upload link"))
+                )
+            }
+            return
+        }
+
         // Check if upload URL has expired (validation timeout)
         if UploadUrlValidator.isExpired(uploadUrl) {
             Task {

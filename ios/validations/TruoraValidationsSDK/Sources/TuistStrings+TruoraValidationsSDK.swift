@@ -309,6 +309,8 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let passiveCaptureFeedbackCenterFace = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_center_face")
   /// Uncover your face
   public static let passiveCaptureFeedbackHiddenFace = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_hidden_face")
+  /// Look at the camera
+  public static let passiveCaptureFeedbackLookForward = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_look_forward")
   /// Avoid appearing with anyone else
   public static let passiveCaptureFeedbackMultiplePeople = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_multiple_people")
   /// Don't move!\nRecording

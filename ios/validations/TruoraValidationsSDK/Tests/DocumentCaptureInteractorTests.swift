@@ -122,6 +122,27 @@ import XCTest
         )
     }
 
+    func testUploadPhoto_withNonTruoraUploadUrl_callsUploadFailed() async throws {
+        try await ValidationConfig.shared.configure(
+            apiKey: "test-api-key",
+            accountId: "test-account-id",
+            delegate: nil
+        )
+        sut.setUploadUrls(
+            frontUploadUrl: "https://evil.example.com/front",
+            reverseUploadUrl: "https://files.truora.com/reverse"
+        )
+        let photoData = Data([0x01, 0x02, 0x03])
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
+
+        sut.uploadPhoto(side: .front, photoData: photoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
+
+        XCTAssertTrue(mockPresenter.photoUploadFailedCalled)
+        XCTAssertEqual(mockPresenter.lastFailedSide, .front)
+        XCTAssertTrue(mockPresenter.lastError?.localizedDescription.contains("Invalid file upload link") ?? false)
+    }
+
     func testUploadPhoto_frontSide_withoutFrontUrl_callsUploadFailed() async throws {
         // Given - Don't set URLs but configure API client so we reach URL validation
         let photoData = Data([0x01, 0x02, 0x03])
@@ -203,8 +224,8 @@ import XCTest
         )
 
         interactor.setUploadUrls(
-            frontUploadUrl: "https://example.com/front",
-            reverseUploadUrl: "https://example.com/reverse"
+            frontUploadUrl: "https://files.truora.com/front",
+            reverseUploadUrl: "https://files.truora.com/reverse"
         )
         let photoData = Data([0x01, 0x02, 0x03, 0x04])
 
@@ -215,7 +236,7 @@ import XCTest
         await fulfillment(of: [uploadExpectation, presenterExpectation], timeout: 1.0)
 
         XCTAssertTrue(uploadCalled, "Upload handler should be called")
-        XCTAssertEqual(capturedUrl, "https://example.com/front")
+        XCTAssertEqual(capturedUrl, "https://files.truora.com/front")
         XCTAssertEqual(capturedData, photoData)
         XCTAssertTrue(mockPresenter.photoUploadCompletedCalled)
         XCTAssertEqual(mockPresenter.lastCompletedSide, .front)
@@ -252,8 +273,8 @@ import XCTest
         )
 
         interactor.setUploadUrls(
-            frontUploadUrl: "https://example.com/front",
-            reverseUploadUrl: "https://example.com/reverse"
+            frontUploadUrl: "https://files.truora.com/front",
+            reverseUploadUrl: "https://files.truora.com/reverse"
         )
         let photoData = Data([0x05, 0x06, 0x07, 0x08])
 
@@ -264,7 +285,7 @@ import XCTest
         await fulfillment(of: [uploadExpectation, presenterExpectation], timeout: 1.0)
 
         XCTAssertTrue(uploadCalled, "Upload handler should be called")
-        XCTAssertEqual(capturedUrl, "https://example.com/reverse")
+        XCTAssertEqual(capturedUrl, "https://files.truora.com/reverse")
         XCTAssertEqual(capturedData, photoData)
         XCTAssertTrue(mockPresenter.photoUploadCompletedCalled)
         XCTAssertEqual(mockPresenter.lastCompletedSide, .back)

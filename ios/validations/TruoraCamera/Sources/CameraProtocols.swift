@@ -41,7 +41,7 @@ public enum DetectionType {
 
 /// Detection category enum with associated type-specific data
 public enum DetectionCategory {
-    case face(landmarks: VNFaceLandmarks2D?)
+    case face(landmarks: VNFaceLandmarks2D?, yaw: Double?)
     case document(scores: [Float]?)
 }
 

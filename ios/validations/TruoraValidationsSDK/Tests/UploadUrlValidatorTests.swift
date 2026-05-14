@@ -9,6 +9,17 @@ import XCTest
 @testable import TruoraValidationsSDK
 
 @MainActor final class UploadUrlValidatorTests: XCTestCase {
+    // MARK: - isTruoraFilesUploadUrl Tests
+
+    func testIsTruoraFilesUploadUrl_withMatchingPrefix_returnsTrue() {
+        let url = UploadUrlValidator.truoraFilesUploadURLPrefix + "path/to/object?Expires=1"
+        XCTAssertTrue(UploadUrlValidator.isTruoraFilesUploadUrl(url))
+    }
+
+    func testIsTruoraFilesUploadUrl_withWrongHost_returnsFalse() {
+        XCTAssertFalse(UploadUrlValidator.isTruoraFilesUploadUrl("https://files.evil.com/path"))
+    }
+
     // MARK: - isExpired Tests
 
     func testIsExpired_whenTimestampInFuture_returnsFalse() {

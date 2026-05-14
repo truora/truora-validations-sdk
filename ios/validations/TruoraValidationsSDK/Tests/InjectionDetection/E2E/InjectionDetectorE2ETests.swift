@@ -328,14 +328,18 @@ final class InjectionDetectorE2ETests: XCTestCase {
         combined.runCameraChecks()
         let combinedResult = combined.computeTrustResult()
 
-        // Combined must accumulate factors from both layers
-        let expectedMinFactors = initOnlyResult.riskFactors.count + cameraOnlyResult.riskFactors.count
+        // Each detection layer runs the full checker suite, so signals overlap
+        // across layers. `TrustResult` deduplicates by (category, signal) — the
+        // combined factor count is the union, not the sum. Both single-layer
+        // results already cover every checker, so the union equals the larger
+        // single-layer count.
+        let expectedFactors = max(initOnlyResult.riskFactors.count, cameraOnlyResult.riskFactors.count)
         XCTAssertEqual(
             combinedResult.riskFactors.count,
-            expectedMinFactors,
-            "Combined must accumulate all factors from both layers: " +
-                "init(\(initOnlyResult.riskFactors.count)) + camera(\(cameraOnlyResult.riskFactors.count)) = " +
-                "\(expectedMinFactors), got \(combinedResult.riskFactors.count)"
+            expectedFactors,
+            "Combined must equal the union of layer signals after dedupe: " +
+                "max(init=\(initOnlyResult.riskFactors.count), camera=\(cameraOnlyResult.riskFactors.count)) = " +
+                "\(expectedFactors), got \(combinedResult.riskFactors.count)"
         )
 
         // Combined score must be <= camera-only score (camera penalty adds on top of init)

@@ -24,11 +24,20 @@ enum ResultViewState {
 
     var presenter: ResultViewToPresenter?
 
+    /// Guards `viewDidLoad` against SwiftUI's chattier `.onAppear` — e.g. when a
+    /// modal dismisses over Result, SwiftUI re-fires `.onAppear` and without this
+    /// flag the presenter would re-start polling on top of a completed/canceled
+    /// result (which in the invoice retry flow snowballed into re-presenting the
+    /// feedback view after the user confirmed cancellation).
+    private var didLoadOnce: Bool = false
+
     init(loadingType: ResultLoadingType = .face) {
         self.loadingType = loadingType
     }
 
     func onAppear() {
+        guard !didLoadOnce else { return }
+        didLoadOnce = true
         Task { await presenter?.viewDidLoad() }
     }
 

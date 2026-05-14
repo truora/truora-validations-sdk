@@ -1,0 +1,10 @@
+{
+  "models": [
+    {
+      "repository": "model-registry",
+      "repository_path": "document/id-detection/yolo/weights/general_int8.tflite",
+      "local_path": "general_int8.tflite",
+      "bucket": "truora-model-registry"
+    }
+  ]
+}

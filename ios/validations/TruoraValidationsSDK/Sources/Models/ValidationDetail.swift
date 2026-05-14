@@ -17,6 +17,8 @@ public struct ValidationDetail: Codable, Equatable {
     public let type: String
     public let validationStatus: String
     public let failureStatus: String?
+    public let declinedReason: String?
+    public let remainingRetries: Int?
     public let creationDate: String
     public let accountId: String
     public let details: ValidationDetailInfo?
@@ -28,6 +30,8 @@ public struct ValidationDetail: Codable, Equatable {
         type: String,
         validationStatus: String,
         failureStatus: String? = nil,
+        declinedReason: String? = nil,
+        remainingRetries: Int? = nil,
         creationDate: String,
         accountId: String,
         details: ValidationDetailInfo? = nil,
@@ -38,6 +42,8 @@ public struct ValidationDetail: Codable, Equatable {
         self.type = type
         self.validationStatus = validationStatus
         self.failureStatus = failureStatus
+        self.declinedReason = declinedReason
+        self.remainingRetries = remainingRetries
         self.creationDate = creationDate
         self.accountId = accountId
         self.details = details
@@ -50,6 +56,8 @@ public struct ValidationDetail: Codable, Equatable {
         case type
         case validationStatus = "validation_status"
         case failureStatus = "failure_status"
+        case declinedReason = "declined_reason"
+        case remainingRetries = "remaining_retries"
         case creationDate = "creation_date"
         case accountId = "account_id"
         case details

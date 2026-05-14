@@ -20,7 +20,7 @@ import XCTest
             validationId: "test-validation-id",
             logger: MockTruoraLogger()
         )
-        interactor.setUploadUrl("https://example.com/upload")
+        interactor.setUploadUrl("https://files.truora.com/upload")
         ValidationConfig.shared.reset()
     }
 
@@ -61,6 +61,23 @@ import XCTest
         XCTAssertTrue(mockPresenter.lastError?.localizedDescription.contains("API client not configured") ?? false)
     }
 
+    func testUploadVideoWithNonTruoraUploadUrl_reportsUploadFailed() async throws {
+        try await ValidationConfig.shared.configure(
+            apiKey: "test-api-key",
+            accountId: "test-account-id",
+            delegate: nil
+        )
+        interactor.setUploadUrl("https://evil.example.com/upload")
+        let videoData = Data([0x00, 0x01, 0x02, 0x03])
+        mockPresenter.videoUploadFailedExpectation = expectation(description: "Upload failed called")
+
+        interactor.uploadVideo(videoData)
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.videoUploadFailedExpectation)], timeout: 1.0)
+
+        XCTAssertTrue(mockPresenter.uploadFailedCalled)
+        XCTAssertTrue(mockPresenter.lastError?.localizedDescription.contains("Invalid file upload link") ?? false)
+    }
+
     func testUploadVideoWithAPIClient() async throws {
         // Given
         let apiKey = "test-api-key"
@@ -92,7 +109,7 @@ import XCTest
             validationId: "test-validation-id",
             logger: MockTruoraLogger()
         )
-        interactorOptional?.setUploadUrl("https://example.com/upload")
+        interactorOptional?.setUploadUrl("https://files.truora.com/upload")
 
         // When
         interactorOptional = nil

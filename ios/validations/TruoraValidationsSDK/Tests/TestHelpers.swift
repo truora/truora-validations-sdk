@@ -23,7 +23,7 @@ enum MockResponseBuilder {
     }
 
     static func validationInstructions(
-        fileUploadLink: String? = "https://example.com/upload",
+        fileUploadLink: String? = "https://files.truora.com/upload",
         frontUrl: String? = nil,
         reverseUrl: String? = nil
     ) -> NativeValidationInstructions {

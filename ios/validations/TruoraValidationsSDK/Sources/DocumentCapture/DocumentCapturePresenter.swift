@@ -232,6 +232,7 @@ final class DocumentCapturePresenter {
 
     private var frontPhotoStatus: CaptureStatus?
     private var backPhotoStatus: CaptureStatus?
+    private var isSingleSidedDocument: Bool = false
 
     private var uploadState: UploadState = .none
 
@@ -419,8 +420,8 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
             return
         }
 
-        let frontUploadUrl = await router.frontUploadUrl
-        let reverseUploadUrl = await router.reverseUploadUrl
+        let frontUploadUrl = await router.consumeFrontUploadUrl()
+        let reverseUploadUrl = await router.consumeReverseUploadUrl()
 
         guard let frontUploadUrl, !frontUploadUrl.isEmpty else {
             await view?.showError("Missing front upload URL")
@@ -428,6 +429,7 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
         }
 
         let isSingleSided = (reverseUploadUrl == nil || reverseUploadUrl?.isEmpty == true)
+        self.isSingleSidedDocument = isSingleSided
 
         if !isSingleSided {
             guard let reverseUploadUrl, !reverseUploadUrl.isEmpty else {
@@ -904,10 +906,7 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
             frontPhotoStatus = .success
             await updateUI()
 
-            let reverseUploadUrl = await router?.reverseUploadUrl
-            let isSingleSided = (reverseUploadUrl == nil || reverseUploadUrl?.isEmpty == true)
-
-            if isSingleSided {
+            if isSingleSidedDocument {
                 await navigateToResultAfterDelay()
             } else {
                 await transitionToBackSideWithRotation()

@@ -61,7 +61,7 @@ class CoreMLFaceDetector {
                 }
 
                 return DetectionResult(
-                    category: .face(landmarks: observation.landmarks),
+                    category: .face(landmarks: observation.landmarks, yaw: observation.yaw?.doubleValue),
                     boundingBox: observation.boundingBox,
                     confidence: observation.confidence
                 )
@@ -163,7 +163,7 @@ class CoreMLFaceDetector {
             }
 
             return DetectionResult(
-                category: .face(landmarks: observation.landmarks),
+                category: .face(landmarks: observation.landmarks, yaw: observation.yaw?.doubleValue),
                 boundingBox: observation.boundingBox,
                 confidence: observation.confidence
             )

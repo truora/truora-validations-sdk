@@ -30,9 +30,32 @@ struct TrustResult: Codable, Equatable {
     let timestamp: Date
 
     init(riskFactors: [RiskFactor], timestamp: Date = Date()) {
-        let totalPenalty = riskFactors.reduce(0) { $0 + $1.penalty }
+        // Dedupe by (category, signal). Each detection layer runs the full checker
+        // suite, so a single hardware/runtime condition surfaces in multiple layer
+        // slots — it must contribute its penalty only once. When the same signal
+        // is reported with different penalties across layers, keep the highest so
+        // a more severe detection always trumps a weaker one.
+        struct Key: Hashable {
+            let category: String
+            let signal: String
+        }
+        var byKey: [Key: RiskFactor] = [:]
+        var orderedKeys: [Key] = []
+        for factor in riskFactors {
+            let key = Key(category: factor.category, signal: factor.signal)
+            if let existing = byKey[key] {
+                if factor.penalty > existing.penalty {
+                    byKey[key] = factor
+                }
+            } else {
+                byKey[key] = factor
+                orderedKeys.append(key)
+            }
+        }
+        let unique = orderedKeys.compactMap { byKey[$0] }
+        let totalPenalty = unique.reduce(0) { $0 + $1.penalty }
         self.trustScore = max(0, min(100, 100 - totalPenalty))
-        self.riskFactors = riskFactors
+        self.riskFactors = unique
         self.timestamp = timestamp
     }
 }

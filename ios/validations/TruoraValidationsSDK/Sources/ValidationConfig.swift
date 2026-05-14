@@ -23,6 +23,7 @@ final class ValidationConfig: ObservableObject {
     private(set) var lang: TruoraLanguage?
     private(set) var faceConfig: Face
     private(set) var documentConfig: Document
+    private(set) var invoiceConfig: Invoice
     private(set) var detectionReporter: DetectionReporter?
     private let logoDownloader: LogoDownloading
     private var logoDownloadTask: Task<Void, Never>?
@@ -32,6 +33,7 @@ final class ValidationConfig: ObservableObject {
         self.uiConfig = UIConfig()
         self.faceConfig = Face()
         self.documentConfig = Document()
+        self.invoiceConfig = Invoice()
     }
 
     deinit {
@@ -128,6 +130,12 @@ final class ValidationConfig: ObservableObject {
             )
             try validateAutocaptureConfig(document)
             self.documentConfig = document
+        case .invoice(let invoice):
+            try validateFinishViewConfig(
+                finishViewConfig: invoice.finishViewConfig,
+                waitForResults: invoice.waitForResults
+            )
+            self.invoiceConfig = invoice
         }
     }
 
@@ -199,6 +207,7 @@ final class ValidationConfig: ObservableObject {
         lang = nil
         faceConfig = Face()
         documentConfig = Document()
+        invoiceConfig = Invoice()
     }
 
     private func downloadLogoIfNeeded() async {

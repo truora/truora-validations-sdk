@@ -67,8 +67,11 @@ extension ResultInteractor: ResultPresenterToInteractor {
     }
 
     func logSdkExecutionFinished() async {
-        let validationType = loadingType == .face
-            ? "face_validation" : "document_validation"
+        let validationType = switch loadingType {
+        case .face: "face_validation"
+        case .document: "document_validation"
+        case .invoice: "invoice_validation"
+        }
         await logger.logSdk(
             eventName: "sdk_execution_finished",
             level: .info,
@@ -160,7 +163,7 @@ private extension ResultInteractor {
         let backoffIntervals = getBackoffIntervals()
         var lastValidationDetail: NativeValidationDetailResponse?
 
-        if loadingType == .document {
+        if loadingType == .document || loadingType == .invoice {
             try await timeProvider.sleep(nanoseconds: 1_000_000_000) // 1s
         }
 
@@ -174,6 +177,12 @@ private extension ResultInteractor {
             do {
                 let validationDetail = try await fetchValidationDetail(apiClient: apiClient)
                 lastValidationDetail = validationDetail
+                debugLog(
+                    "🟢 ResultInteractor: Poll response — "
+                        + "validation_status=\(validationDetail.validationStatus) "
+                        + "failure_status=\(validationDetail.failureStatus ?? "nil") "
+                        + "type=\(validationDetail.type)"
+                )
                 if shouldReturnResult(for: validationDetail) {
                     return createValidationResult(from: validationDetail)
                 }
@@ -224,6 +233,8 @@ private extension ResultInteractor {
             type: detail.type,
             validationStatus: detail.validationStatus,
             failureStatus: "expired",
+            declinedReason: detail.declinedReason,
+            remainingRetries: detail.remainingRetries,
             creationDate: detail.creationDate,
             accountId: detail.accountId,
             details: detail.details,
@@ -279,6 +290,8 @@ private extension ResultInteractor {
             type: response.type,
             validationStatus: response.validationStatus,
             failureStatus: response.failureStatus,
+            declinedReason: response.declinedReason,
+            remainingRetries: response.remainingRetries,
             creationDate: response.creationDate,
             accountId: response.accountId,
             details: mapDetailInfo(from: response.details),

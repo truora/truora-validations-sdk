@@ -26,6 +26,8 @@ struct PassiveCaptureFeedbackView: View {
             TruoraLocalization.string(forKey: LocalizationKeys.passiveCaptureFeedbackHiddenFace)
         case .centerFace:
             TruoraLocalization.string(forKey: LocalizationKeys.passiveCaptureFeedbackCenterFace)
+        case .lookForward:
+            TruoraLocalization.string(forKey: LocalizationKeys.passiveCaptureFeedbackLookForward)
         case .recording:
             TruoraLocalization.string(forKey: LocalizationKeys.passiveCaptureFeedbackRecording)
         }
@@ -40,6 +42,7 @@ struct PassiveCaptureFeedbackView: View {
         case .multiplePeople: "feedback_multiple_people"
         case .hiddenFace: "feedback_hidden_face"
         case .centerFace: "feedback_center_face"
+        case .lookForward: "feedback_look_forward"
         case .recording: "feedback_recording"
         }
     }
@@ -75,6 +78,7 @@ struct PassiveCaptureFeedbackView: View {
         PassiveCaptureFeedbackView(feedback: .showFace)
         PassiveCaptureFeedbackView(feedback: .recording)
         PassiveCaptureFeedbackView(feedback: .multiplePeople)
+        PassiveCaptureFeedbackView(feedback: .lookForward)
     }
     .padding()
     .background(Color.black)

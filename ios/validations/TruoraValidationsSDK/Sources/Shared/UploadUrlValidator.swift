@@ -10,6 +10,17 @@ import Foundation
 /// Utility to check if a pre-signed S3 upload URL has expired.
 /// Pre-signed URLs contain an `Expires` parameter with the Unix timestamp of expiration.
 enum UploadUrlValidator {
+    /// Allowed prefix for file upload URLs (Truora-controlled domain only).
+    static let truoraFilesUploadURLPrefix = "https://files.truora.com/"
+
+    /// Returns `true` when the URL targets Truora's file domain (avoids uploading to arbitrary hosts).
+    static func isTruoraFilesUploadUrl(_ urlString: String?) -> Bool {
+        guard let urlString, !urlString.isEmpty else {
+            return false
+        }
+        return urlString.hasPrefix(truoraFilesUploadURLPrefix)
+    }
+
     /// Checks if the given pre-signed URL has expired.
     /// - Parameters:
     ///   - urlString: The pre-signed S3 URL string

@@ -141,8 +141,8 @@ import XCTest
 
     func testNavigateToDocumentCaptureWithValidData() {
         let validationId = "test-validation-id"
-        let frontUrl = "https://example.com/front"
-        let reverseUrl = "https://example.com/reverse"
+        let frontUrl = "https://files.truora.com/front"
+        let reverseUrl = "https://files.truora.com/reverse"
 
         XCTAssertNoThrow(try router.navigateToDocumentCapture(
             validationId: validationId,
@@ -153,7 +153,7 @@ import XCTest
 
     func testNavigateToDocumentCaptureWithSingleSidedDocument() {
         let validationId = "test-validation-id"
-        let frontUrl = "https://example.com/front"
+        let frontUrl = "https://files.truora.com/front"
 
         XCTAssertNoThrow(try router.navigateToDocumentCapture(
             validationId: validationId,
@@ -258,6 +258,160 @@ import XCTest
 
         // Then
         XCTAssertEqual(testableRouter.lastLoadingType, .document)
+    }
+
+    // MARK: - Invoice Feedback Navigation
+
+    func testNavigateToInvoiceFeedback_presentsModal() {
+        // When / Then — no throw on a valid router + nav controller
+        XCTAssertNoThrow(
+            try router.navigateToInvoiceFeedback(
+                feedback: .missingText,
+                capturedImageData: Self.minimalJPEGData,
+                retriesLeft: 2
+            )
+        )
+    }
+
+    func testNavigateToInvoiceFeedback_storesFeedbackVCReference() throws {
+        // UIKit only retains a presented VC when the presenter is in a window, so
+        // attach the nav controller to a real key window before calling `navigateToInvoiceFeedback`.
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.rootViewController = mockNavigationController
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        XCTAssertNil(router.invoiceFeedbackViewControllerForTest)
+
+        // When
+        try router.navigateToInvoiceFeedback(
+            feedback: .missingText,
+            capturedImageData: Self.minimalJPEGData,
+            retriesLeft: 2
+        )
+
+        // Then — the router retains the built VC so dismiss can identify it later
+        XCTAssertNotNil(router.invoiceFeedbackViewControllerForTest)
+    }
+
+    func testDismissInvoiceFeedback_calledWithoutPresentedVC_callsCompletionImmediately() {
+        // Given — nav controller with no presented VC
+        var completionCalled = false
+
+        // When
+        router.dismissInvoiceFeedback { completionCalled = true }
+
+        // Then — completion fires synchronously on the guard path
+        XCTAssertTrue(completionCalled)
+    }
+
+    func testDismissInvoiceFeedbackAndPopToIntro_popsBeforeDismissing() {
+        // Given — a router whose dismiss is spied on, with at least one VC on the stack
+        let spyRouter = OrderSpyRouter(navigationController: mockNavigationController)
+        mockNavigationController.viewControllers = [UIViewController(), UIViewController()]
+
+        // When
+        spyRouter.dismissInvoiceFeedbackAndPopToIntro()
+
+        // Then — by the time dismiss fires, the pop has already happened
+        XCTAssertTrue(spyRouter.dismissCalled)
+        XCTAssertEqual(
+            spyRouter.viewControllerCountAtDismiss,
+            1,
+            "Pop must run before dismiss — stack should be down to 1 VC"
+        )
+    }
+
+    // MARK: - Router Properties
+
+    func testInvoiceCapturedImageData_propertyGetSet() {
+        XCTAssertNil(router.invoiceCapturedImageData)
+
+        let data = Self.minimalJPEGData
+        router.invoiceCapturedImageData = data
+        XCTAssertEqual(router.invoiceCapturedImageData, data)
+
+        router.invoiceCapturedImageData = nil
+        XCTAssertNil(router.invoiceCapturedImageData)
+    }
+
+    func testPendingInvoiceRetryValidationId_propertyGetSet() {
+        XCTAssertNil(router.pendingInvoiceRetryValidationId)
+
+        router.pendingInvoiceRetryValidationId = "VLD-42"
+        XCTAssertEqual(router.pendingInvoiceRetryValidationId, "VLD-42")
+
+        router.pendingInvoiceRetryValidationId = nil
+        XCTAssertNil(router.pendingInvoiceRetryValidationId)
+    }
+
+    // MARK: - Upload URL Consume-Once Tests
+
+    func testConsumeUploadUrl_returnsValueAndClearsIt() {
+        router.setUploadUrlForTest("https://example.com/upload")
+
+        let first = router.consumeUploadUrl()
+        XCTAssertEqual(first, "https://example.com/upload")
+
+        let second = router.consumeUploadUrl()
+        XCTAssertNil(second, "Second consumption must return nil — URL is single-use")
+    }
+
+    func testConsumeFrontUploadUrl_returnsValueAndClearsIt() {
+        router.setFrontUploadUrlForTest("https://example.com/front")
+
+        let first = router.consumeFrontUploadUrl()
+        XCTAssertEqual(first, "https://example.com/front")
+
+        let second = router.consumeFrontUploadUrl()
+        XCTAssertNil(second, "Second consumption must return nil — URL is single-use")
+    }
+
+    func testConsumeReverseUploadUrl_returnsValueAndClearsIt() {
+        router.setReverseUploadUrlForTest("https://example.com/reverse")
+
+        let first = router.consumeReverseUploadUrl()
+        XCTAssertEqual(first, "https://example.com/reverse")
+
+        let second = router.consumeReverseUploadUrl()
+        XCTAssertNil(second, "Second consumption must return nil — URL is single-use")
+    }
+
+    func testConsumeUploadUrl_nilWhenNeverSet() {
+        let result = router.consumeUploadUrl()
+        XCTAssertNil(result, "Consuming unset URL must return nil")
+    }
+
+    func testNavigateToPassiveCapture_setsUploadUrlForConsumption() async throws {
+        try await ValidationConfig.shared.configure(
+            apiKey: "test-api-key",
+            accountId: "test-account-id",
+            delegate: mockDelegate.closure
+        )
+
+        try router.navigateToPassiveCapture(validationId: "v1", uploadUrl: "https://example.com/upload")
+
+        // URL is set and can be consumed once
+        let first = router.consumeUploadUrl()
+        XCTAssertEqual(first, "https://example.com/upload")
+
+        let second = router.consumeUploadUrl()
+        XCTAssertNil(second, "URL must be consumed only once")
+    }
+}
+
+// MARK: - Order Spy Router
+
+@MainActor private final class OrderSpyRouter: ValidationRouter {
+    private(set) var dismissCalled = false
+    private(set) var viewControllerCountAtDismiss: Int?
+
+    override func dismissInvoiceFeedback(completion: (() -> Void)? = nil) {
+        dismissCalled = true
+        viewControllerCountAtDismiss = navigationController?.viewControllers.count
+        completion?()
     }
 }
 

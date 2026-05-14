@@ -263,12 +263,119 @@ import XCTest
             createFaceDetectionResult(confidence: 0.85)
         ]
 
-        // When
+        // When - hysteresis requires 2 consecutive multi-face frames before
+        // emitting; first frame is warmup, second confirms the state.
+        await sut.detectionsReceived(multipleResults)
         await sut.detectionsReceived(multipleResults)
 
         // Then
         XCTAssertTrue(mockView.updateUICalled, "Should update UI")
         XCTAssertEqual(mockView.lastFeedback, .multiplePeople, "Should show MULTIPLE_PEOPLE feedback")
+    }
+
+    func testCameraFrameProcessed_multipleFaces_publishesAllRenderableBoundingBoxes() async {
+        // Given - two faces tall enough to render per PROC-6872
+        sut.currentState = .recording
+        let mainFaceBox = CGRect(x: 0.35, y: 0.35, width: 0.30, height: 0.30)
+        let backgroundFaceBox = CGRect(x: 0.05, y: 0.40, width: 0.15, height: 0.18)
+        let multipleResults = [
+            createFaceDetectionResult(confidence: 0.9, boundingBox: mainFaceBox),
+            createFaceDetectionResult(confidence: 0.85, boundingBox: backgroundFaceBox)
+        ]
+
+        // When - send the same frame twice to clear the enter-warmup window.
+        await sut.detectionsReceived(multipleResults)
+        await sut.detectionsReceived(multipleResults)
+
+        // Then - boxes are sorted by midX so SwiftUI ForEach offset stays bound
+        // to the same face across frames (kills detector-side index swaps).
+        XCTAssertEqual(
+            mockView.lastDetectedFaceBoxes,
+            [backgroundFaceBox, mainFaceBox],
+            "Should publish every renderable face bounding box, sorted by midX"
+        )
+    }
+
+    func testCameraFrameProcessed_multipleFaces_filtersOutTinyDetections() async {
+        // Given - one normal face + one under the render threshold
+        sut.currentState = .recording
+        let mainFaceBox = CGRect(x: 0.35, y: 0.35, width: 0.30, height: 0.30)
+        let tinyFaceBox = CGRect(x: 0.05, y: 0.40, width: 0.04, height: 0.05)
+        let multipleResults = [
+            createFaceDetectionResult(confidence: 0.9, boundingBox: mainFaceBox),
+            createFaceDetectionResult(confidence: 0.85, boundingBox: tinyFaceBox)
+        ]
+
+        // When - multi-face classification runs on raw face count so the
+        // .multiplePeople toast still fires for tiny background faces; the
+        // 8% filter only suppresses the tiny one from rendering.
+        await sut.detectionsReceived(multipleResults)
+        await sut.detectionsReceived(multipleResults)
+
+        // Then - main face renders, tiny face is filtered out, toast is shown.
+        XCTAssertEqual(
+            mockView.lastDetectedFaceBoxes,
+            [mainFaceBox],
+            "Should render only the face above minMultiFaceRenderHeight"
+        )
+        XCTAssertEqual(
+            mockView.lastFeedback,
+            .multiplePeople,
+            "Should still show MULTIPLE_PEOPLE toast even when tiny faces are dropped"
+        )
+    }
+
+    func testCameraFrameProcessed_transitionFromMultipleToSingleFace_clearsBoundingBoxes() async {
+        // Given
+        sut.currentState = .recording
+        let mainFaceBox = CGRect(x: 0.35, y: 0.35, width: 0.30, height: 0.30)
+        let backgroundFaceBox = CGRect(x: 0.05, y: 0.40, width: 0.15, height: 0.18)
+        let multipleResults = [
+            createFaceDetectionResult(confidence: 0.9, boundingBox: mainFaceBox),
+            createFaceDetectionResult(confidence: 0.85, boundingBox: backgroundFaceBox)
+        ]
+        let singleFace = [createFaceDetectionResult(confidence: 0.95)]
+
+        // When - 2 frames to enter multi-face state.
+        await sut.detectionsReceived(multipleResults)
+        await sut.detectionsReceived(multipleResults)
+        XCTAssertEqual(
+            mockView.lastDetectedFaceBoxes?.count,
+            2,
+            "Precondition: multi-face state should publish 2 boxes after enter threshold"
+        )
+
+        // When - 3 single-face frames to cross the exit threshold.
+        await sut.detectionsReceived(singleFace)
+        await sut.detectionsReceived(singleFace)
+        await sut.detectionsReceived(singleFace)
+
+        // Then - list is cleared so overlay hides per-face ovals.
+        XCTAssertEqual(
+            mockView.lastDetectedFaceBoxes,
+            [],
+            "Should clear bounding boxes after exit threshold confirms single face"
+        )
+    }
+
+    func testCameraFrameProcessed_noFaces_clearsBoundingBoxes() async {
+        // Given
+        sut.currentState = .recording
+        let multipleResults = [
+            createFaceDetectionResult(confidence: 0.9),
+            createFaceDetectionResult(confidence: 0.85)
+        ]
+
+        // When - multi-face, then frame with no faces
+        await sut.detectionsReceived(multipleResults)
+        await sut.detectionsReceived([])
+
+        // Then
+        XCTAssertEqual(
+            mockView.lastDetectedFaceBoxes,
+            [],
+            "Should clear bounding boxes when no faces detected"
+        )
     }
 
     func testCameraFrameProcessed_oneFace_startsFaceDetectionTimer() async {
@@ -356,7 +463,9 @@ import XCTest
             await sut.detectionsReceived(singleFace)
         }
 
-        // Then interrupt with multiple faces
+        // Then interrupt with multiple faces — 2 consecutive frames clear the
+        // hysteresis enter window.
+        await sut.detectionsReceived(multipleFaces)
         await sut.detectionsReceived(multipleFaces)
 
         // Then - Timer should be reset, shown by feedback change
@@ -971,6 +1080,100 @@ import XCTest
             "Should clear feedback for centered face"
         )
     }
+
+    // MARK: - Face Forward (Yaw) Tests
+
+    func testIsFaceFacingForward_nilYaw_returnsTrue() {
+        let face = createFaceDetectionResult(yaw: nil)
+        XCTAssertTrue(sut.isFaceFacingForward(face))
+    }
+
+    func testIsFaceFacingForward_zeroYaw_returnsTrue() {
+        let face = createFaceDetectionResult(yaw: 0)
+        XCTAssertTrue(sut.isFaceFacingForward(face))
+    }
+
+    func testIsFaceFacingForward_justUnderThreshold_returnsTrue() {
+        let face = createFaceDetectionResult(yaw: PassiveCapturePresenter.yawThresholdRadians - 0.001)
+        XCTAssertTrue(sut.isFaceFacingForward(face))
+    }
+
+    func testIsFaceFacingForward_atThreshold_returnsFalse() {
+        let face = createFaceDetectionResult(yaw: PassiveCapturePresenter.yawThresholdRadians)
+        XCTAssertFalse(sut.isFaceFacingForward(face))
+    }
+
+    func testIsFaceFacingForward_negativeProfile_returnsFalse() {
+        let face = createFaceDetectionResult(yaw: -.pi / 3)
+        XCTAssertFalse(sut.isFaceFacingForward(face))
+    }
+
+    // MARK: - Sideways Face Detection Tests
+
+    func testCameraFrameProcessed_sidewaysProfile_setsFeedbackToLookForward() async {
+        // Given
+        sut.currentState = .recording
+        let sidewaysFace = [createFaceDetectionResult(yaw: .pi / 3)]
+
+        // When
+        await sut.detectionsReceived(sidewaysFace)
+
+        // Then
+        XCTAssertEqual(mockView.lastFeedback, .lookForward, "Should show LOOK_FORWARD feedback")
+        XCTAssertFalse(mockView.startRecordingCalled, "Should NOT start recording while in profile")
+    }
+
+    func testCameraFrameProcessed_sidewaysToFrontal_recoversAndStartsRecording() async {
+        // Given
+        sut.currentState = .recording
+        let sidewaysFace = [createFaceDetectionResult(yaw: .pi / 3)]
+        let frontalFace = [createFaceDetectionResult(yaw: 0)]
+
+        // When - 5 sideways frames
+        for _ in 0 ..< 5 {
+            await sut.detectionsReceived(sidewaysFace)
+        }
+        XCTAssertEqual(mockView.lastFeedback, .lookForward)
+        XCTAssertFalse(mockView.startRecordingCalled, "Sideways frames must not trigger recording")
+
+        // Then - first frontal frame starts the timer
+        await sut.detectionsReceived(frontalFace)
+
+        // Advance time past the 1s detection threshold
+        mockTimeProvider.currentTime = mockTimeProvider.currentTime.addingTimeInterval(1.1)
+
+        // Process another frontal frame to fire the time check
+        await sut.detectionsReceived(frontalFace)
+
+        // Then
+        XCTAssertTrue(mockView.startRecordingCalled, "Should start recording after recovering to frontal")
+    }
+
+    func testCameraFrameProcessed_sidewaysInterruptsExistingFaceTimer_resetsTimer() async {
+        // Given
+        sut.currentState = .recording
+        let frontalFace = [createFaceDetectionResult(yaw: 0)]
+        let sidewaysFace = [createFaceDetectionResult(yaw: .pi / 3)]
+
+        // First frontal frame starts the detection timer
+        await sut.detectionsReceived(frontalFace)
+
+        // Sideways frame must reset the timer; feedback flips to lookForward
+        await sut.detectionsReceived(sidewaysFace)
+        XCTAssertEqual(mockView.lastFeedback, .lookForward)
+        XCTAssertFalse(mockView.startRecordingCalled)
+
+        // After advancing past the 1s detection threshold, a single new frontal
+        // frame must NOT trigger recording — that proves the timer was reset
+        // (otherwise the original t=0 timer would have fired).
+        mockTimeProvider.currentTime = mockTimeProvider.currentTime.addingTimeInterval(1.1)
+        await sut.detectionsReceived(frontalFace)
+        XCTAssertFalse(
+            mockView.startRecordingCalled,
+            "Sideways interruption must reset the face-detection timer, " +
+                "so a single frame after >1s of elapsed time cannot trigger recording"
+        )
+    }
 }
 
 // swiftlint:enable type_body_length
@@ -996,6 +1199,10 @@ import XCTest
     var lastShowHelpDialog: Bool?
     var lastFrameData: Data?
     var lastUploadState: UploadState?
+    private(set) var detectedFaceBoxesUpdates: [[CGRect]] = []
+    var lastDetectedFaceBoxes: [CGRect]? {
+        detectedFaceBoxesUpdates.last
+    }
 
     func setupCamera() {
         setupCameraCalled = true
@@ -1059,6 +1266,10 @@ import XCTest
     }
 
     func resetRecordingInProgress() {}
+
+    func updateDetectedFaceBoundingBoxes(_ visionBoxes: [CGRect]) {
+        detectedFaceBoxesUpdates.append(visionBoxes)
+    }
 }
 
 // MARK: - Mock Interactor
@@ -1117,10 +1328,11 @@ private final class MockPassiveCaptureInteractor: PassiveCapturePresenterToInter
 private func createFaceDetectionResult(
     confidence: Float = 0.9,
     boundingBox: CGRect = CGRect(x: 0.35, y: 0.35, width: 0.30, height: 0.30),
-    landmarks: VNFaceLandmarks2D? = nil
+    landmarks: VNFaceLandmarks2D? = nil,
+    yaw: Double? = nil
 ) -> DetectionResult {
     DetectionResult(
-        category: .face(landmarks: landmarks),
+        category: .face(landmarks: landmarks, yaw: yaw),
         boundingBox: boundingBox,
         confidence: confidence
     )

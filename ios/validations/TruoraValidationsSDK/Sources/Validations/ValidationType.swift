@@ -8,4 +8,5 @@
 enum ValidationType {
     case face(Face)
     case document(Document)
+    case invoice(Invoice)
 }

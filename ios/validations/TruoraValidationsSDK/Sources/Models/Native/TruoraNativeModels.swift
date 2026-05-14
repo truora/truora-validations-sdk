@@ -12,6 +12,13 @@ import Foundation
 // These are native Swift models for API communication, prefixed with "Native"
 // to avoid conflicts with KMP exported types during the migration period.
 
+/// Body of `POST /validations`. The backend expects
+/// `application/x-www-form-urlencoded`, so this struct is **not** serialized via
+/// `JSONEncoder` — it's hand-encoded in `TruoraAPIClient.encodeToFormData(_:)`.
+///
+/// ⚠️ If you add a field here, add it to `TruoraAPIClient.encodeToFormData` as
+/// well. `TruoraAPIClientTests.testEncodeToFormData_includesAllNonNilFields`
+/// guards against this drift.
 struct NativeValidationRequest: Codable {
     let type: String
     let country: String?
@@ -22,6 +29,31 @@ struct NativeValidationRequest: Codable {
     let timeout: Int?
     let userAuthorized: Bool
     let checkManualReviewAvailability: Bool
+    let retryOfId: String?
+
+    init(
+        type: String,
+        country: String?,
+        accountId: String,
+        threshold: Double?,
+        subvalidations: [String]?,
+        documentType: String?,
+        timeout: Int?,
+        userAuthorized: Bool,
+        checkManualReviewAvailability: Bool,
+        retryOfId: String? = nil
+    ) {
+        self.type = type
+        self.country = country
+        self.accountId = accountId
+        self.threshold = threshold
+        self.subvalidations = subvalidations
+        self.documentType = documentType
+        self.timeout = timeout
+        self.userAuthorized = userAuthorized
+        self.checkManualReviewAvailability = checkManualReviewAvailability
+        self.retryOfId = retryOfId
+    }
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -33,6 +65,7 @@ struct NativeValidationRequest: Codable {
         case timeout
         case userAuthorized = "user_authorized"
         case checkManualReviewAvailability = "check_manual_review_availability"
+        case retryOfId = "retry_of_id"
     }
 }
 
@@ -66,6 +99,8 @@ struct NativeValidationDetailResponse: Codable {
     let type: String
     let details: NativeValidationDetails?
     let failureStatus: String?
+    let declinedReason: String?
+    let remainingRetries: Int?
     let validationInputs: NativeValidationInputs?
     let userResponse: NativeUserResponse?
 
@@ -77,6 +112,8 @@ struct NativeValidationDetailResponse: Codable {
         case type
         case details
         case failureStatus = "failure_status"
+        case declinedReason = "declined_reason"
+        case remainingRetries = "remaining_retries"
         case validationInputs = "validation_inputs"
         case userResponse = "user_response"
     }
@@ -89,6 +126,8 @@ struct NativeValidationDetailResponse: Codable {
         type: String,
         details: NativeValidationDetails? = nil,
         failureStatus: String? = nil,
+        declinedReason: String? = nil,
+        remainingRetries: Int? = nil,
         validationInputs: NativeValidationInputs? = nil,
         userResponse: NativeUserResponse? = nil
     ) {
@@ -99,6 +138,8 @@ struct NativeValidationDetailResponse: Codable {
         self.type = type
         self.details = details
         self.failureStatus = failureStatus
+        self.declinedReason = declinedReason
+        self.remainingRetries = remainingRetries
         self.validationInputs = validationInputs
         self.userResponse = userResponse
     }

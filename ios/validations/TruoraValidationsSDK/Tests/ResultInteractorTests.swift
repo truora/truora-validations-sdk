@@ -306,6 +306,88 @@ import XCTest
         )
     }
 
+    // MARK: - Detail Mapping (new invoice fields)
+
+    func testMapToValidationDetail_propagatesRemainingRetries() {
+        // Given
+        let response = NativeValidationDetailResponse(
+            validationId: "VLD-1",
+            validationStatus: "failed",
+            creationDate: "2026-04-22T00:00:00Z",
+            accountId: "acc",
+            type: "document-validation",
+            remainingRetries: 3
+        )
+
+        // When
+        let detail = sut.mapToValidationDetail(from: response)
+
+        // Then
+        XCTAssertEqual(detail.remainingRetries, 3)
+    }
+
+    func testMapToValidationDetail_propagatesDeclinedReason() {
+        // Given
+        let response = NativeValidationDetailResponse(
+            validationId: "VLD-1",
+            validationStatus: "failed",
+            creationDate: "2026-04-22T00:00:00Z",
+            accountId: "acc",
+            type: "document-validation",
+            declinedReason: "document_not_recognized"
+        )
+
+        // When
+        let detail = sut.mapToValidationDetail(from: response)
+
+        // Then
+        XCTAssertEqual(detail.declinedReason, "document_not_recognized")
+    }
+
+    // MARK: - Detail Decoding (JSON contract)
+
+    func testDecodeDetailResponse_withRemainingRetriesAndDeclinedReason() throws {
+        // Given — snake_case keys mirroring the backend contract
+        let json = """
+        {
+          "validation_id": "VLD-1",
+          "validation_status": "failed",
+          "creation_date": "2026-04-22T00:00:00Z",
+          "account_id": "acc",
+          "type": "document-validation",
+          "declined_reason": "missing_text",
+          "remaining_retries": 2
+        }
+        """.data(using: .utf8)!
+
+        // When
+        let response = try JSONDecoder().decode(NativeValidationDetailResponse.self, from: json)
+
+        // Then
+        XCTAssertEqual(response.declinedReason, "missing_text")
+        XCTAssertEqual(response.remainingRetries, 2)
+    }
+
+    func testDecodeDetailResponse_missingNewFields_preservesBackwardsCompat() throws {
+        // Given — JSON without the new fields (older responses)
+        let json = """
+        {
+          "validation_id": "VLD-1",
+          "validation_status": "success",
+          "creation_date": "2026-04-22T00:00:00Z",
+          "account_id": "acc",
+          "type": "face-recognition"
+        }
+        """.data(using: .utf8)!
+
+        // When
+        let response = try JSONDecoder().decode(NativeValidationDetailResponse.self, from: json)
+
+        // Then
+        XCTAssertNil(response.declinedReason)
+        XCTAssertNil(response.remainingRetries)
+    }
+
     // MARK: - Helper Methods
 
     private func createMockResponse(
@@ -378,6 +460,8 @@ extension ResultInteractor {
             type: response.type,
             validationStatus: response.validationStatus,
             failureStatus: response.failureStatus,
+            declinedReason: response.declinedReason,
+            remainingRetries: response.remainingRetries,
             creationDate: response.creationDate,
             accountId: response.accountId,
             details: detailInfo,

@@ -32,7 +32,8 @@ struct PassiveCaptureView: View {
                     feedback: viewModel.feedback,
                     countdown: viewModel.countdown,
                     lastFrameData: viewModel.lastFrameData,
-                    uploadState: viewModel.uploadState
+                    uploadState: viewModel.uploadState,
+                    detectedFaceBoxes: viewModel.detectedFaceBoxes
                 ) { viewModel.handleEvent(.recordingCompleted) }
                     .modifier(AccessibilityIdentifierModifier(identifier: accessibilityIdentifierForState))
 

@@ -36,6 +36,11 @@ import UIKit
 
     /// Resets the recording in progress flag, re-enabling the record button
     func resetRecordingInProgress()
+
+    /// Publishes the list of face bounding boxes in Vision-normalized space
+    /// (bottom-left origin) for the overlay to render per-face ovals.
+    /// Pass an empty array to clear the overlay.
+    func updateDetectedFaceBoundingBoxes(_ visionBoxes: [CGRect])
 }
 
 protocol PassiveCaptureViewToPresenter: AnyObject {

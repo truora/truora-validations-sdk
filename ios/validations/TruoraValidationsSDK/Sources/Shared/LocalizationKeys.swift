@@ -114,6 +114,7 @@ enum LocalizationKeys {
     static let passiveCaptureFeedbackMultiplePeople = "passive_capture_feedback_multiple_people"
     static let passiveCaptureFeedbackHiddenFace = "passive_capture_feedback_hidden_face"
     static let passiveCaptureFeedbackCenterFace = "passive_capture_feedback_center_face"
+    static let passiveCaptureFeedbackLookForward = "passive_capture_feedback_look_forward"
     static let passiveCaptureFeedbackRecording = "passive_capture_feedback_recording"
     static let passiveCaptureTip1 = "passive_capture_tip_1"
     static let passiveCaptureTip2 = "passive_capture_tip_2"
@@ -207,6 +208,45 @@ enum LocalizationKeys {
     // Costa Rica
     static let docCrNationalId = "doc_cr_national_id"
     static let docCrForeignId = "doc_cr_foreign_id"
+
+    // MARK: - Invoice intro (country-specific)
+
+    static let invoiceInstructionsTitleMx = "invoice_instructions_title_mx"
+    static let invoiceInstructionsTitleCo = "invoice_instructions_title_co"
+    static let invoiceInstructionsSubtitlePrefixMx = "invoice_instructions_subtitle_prefix_mx"
+    static let invoiceInstructionsValidityPeriod = "invoice_instructions_validity_period"
+    static let invoiceInstructionsSubtitleSuffixMx = "invoice_instructions_subtitle_suffix_mx"
+    static let invoiceInstructionsSubtitleCo = "invoice_instructions_subtitle_co"
+    static let invoiceInstructionsUploadFile = "invoice_instructions_upload_file"
+    static let invoiceInstructionsTakePhoto = "invoice_instructions_take_photo"
+    static let invoiceInstructionsCreatingValidation = "invoice_instructions_creating_validation"
+
+    // MARK: - Invoice feedback (country-specific titles)
+
+    static let invoiceFeedbackMissingTextTitleMx = "invoice_feedback_missing_text_title_mx"
+    static let invoiceFeedbackMissingTextTitleCo = "invoice_feedback_missing_text_title_co"
+    static let invoiceFeedbackMissingTextDesc = "invoice_feedback_missing_text_desc"
+    static let invoiceFeedbackNotFoundTitleMx = "invoice_feedback_not_found_title_mx"
+    static let invoiceFeedbackNotFoundTitleCo = "invoice_feedback_not_found_title_co"
+    static let invoiceFeedbackNotFoundDescPrefixMx = "invoice_feedback_not_found_desc_prefix_mx"
+    static let invoiceFeedbackNotFoundProvidersMx = "invoice_feedback_not_found_providers_mx"
+    static let invoiceFeedbackNotFoundDescSuffixMx = "invoice_feedback_not_found_desc_suffix_mx"
+    static let invoiceFeedbackNotFoundDescPrefixCo = "invoice_feedback_not_found_desc_prefix_co"
+    static let invoiceFeedbackNotFoundProvidersCo = "invoice_feedback_not_found_providers_co"
+    static let invoiceFeedbackNotFoundDescSuffixCo = "invoice_feedback_not_found_desc_suffix_co"
+    static let invoiceFeedbackExpiredTitleMx = "invoice_feedback_expired_title_mx"
+    static let invoiceFeedbackExpiredTitleCo = "invoice_feedback_expired_title_co"
+    static let invoiceFeedbackExpiredDescMx = "invoice_feedback_expired_desc_mx"
+    static let invoiceFeedbackExpiredDescCo = "invoice_feedback_expired_desc_co"
+    static let invoiceFeedbackTipsLink = "invoice_feedback_tips_link"
+    static let invoiceFeedbackRetry = "invoice_feedback_retry"
+    static let invoiceFeedbackRetriesLeft = "invoice_feedback_retries_left"
+    static let invoiceFeedbackTipsTitle = "invoice_feedback_tips_title"
+    static let invoiceFeedbackTipCornersMx = "invoice_feedback_tip_corners_mx"
+    static let invoiceFeedbackTipCornersCo = "invoice_feedback_tip_corners_co"
+    static let invoiceFeedbackTipGlareMx = "invoice_feedback_tip_glare_mx"
+    static let invoiceFeedbackTipGlareCo = "invoice_feedback_tip_glare_co"
+    static let invoiceFeedbackTipAngle = "invoice_feedback_tip_angle"
 
     // MARK: - Document descriptions (by country/type)
 

@@ -71,6 +71,36 @@ class PassiveCapturePresenter {
     static let maxFaceHeight: CGFloat = 0.85
     static let centerDistanceThreshold: CGFloat = 0.25
 
+    /// Minimum face bbox height to render an oval in multi-face mode.
+    /// Lower than `minFaceHeight` so clearly visible background faces (e.g. ~18% tall
+    /// per Figma PROC-6872) still get an oval, while tiny noise detections are dropped.
+    static let minMultiFaceRenderHeight: CGFloat = 0.08
+
+    /// Yaw at or above this magnitude (in radians) blocks autocapture and emits .lookForward.
+    /// 25° matches Android's YAW_THRESHOLD_DEGREES for cross-platform UX consistency. On iOS 13/14
+    /// Vision yaw is reported in {0, ±45°} discrete bins, so any threshold in (0°, 45°) blocks only
+    /// the ±45° bucket; iOS 15+ reports continuous yaw and the check applies directly.
+    static let yawThresholdRadians: Double = 25.0 * .pi / 180.0
+
+    /// Hysteresis thresholds for the multi-face state, in consecutive frames.
+    /// Filters out single-frame Vision flicker that otherwise pops ovals on/off
+    /// at detector frame rate (~20-30Hz).
+    private static let multiFaceEnterFrames: Int = 2
+    private static let multiFaceExitFrames: Int = 3
+
+    /// EMA blend factor for per-face oval coordinates. Lower = more smoothing.
+    /// 0.4 keeps response snappy while killing the per-frame "throb" Vision bboxes
+    /// produce on stationary faces.
+    private static let multiFaceSmoothingAlpha: CGFloat = 0.4
+
+    /// Hysteresis + smoothing state for multi-face detection. Reset whenever the
+    /// presenter leaves a state that draws per-face ovals (manual transition,
+    /// help dialog, lifecycle resets).
+    private var multiFaceConfirmCount: Int = 0
+    private var multiFaceClearCount: Int = 0
+    private var multiFaceActive: Bool = false
+    private var smoothedMultiFaceBoxes: [CGRect] = []
+
     private let validationId: String
 
     // MARK: - Injection Detection
@@ -251,26 +281,120 @@ class PassiveCapturePresenter {
         return distance <= Self.centerDistanceThreshold
     }
 
+    /// Returns true when the face is sufficiently frontal for autocapture.
+    /// Null yaw (Vision could not compute it) returns true — we never block on missing data.
+    func isFaceFacingForward(_ face: DetectionResult) -> Bool {
+        guard case .face(_, let yaw) = face.category else { return true }
+        guard let yaw else { return true }
+        return abs(yaw) < Self.yawThresholdRadians
+    }
+
     /// Transitions to manual mode with error message (used when autocapture times out)
     private func transitionToManualWithError() async {
         resetFaceDetectionTimer()
+        resetMultiFaceState()
         currentState = .manual
         currentFeedback = .showFace
+        await view?.updateDetectedFaceBoundingBoxes([])
         await updateUI()
     }
 
     /// Transitions to manual mode without error message (used when autocapture is disabled)
     private func transitionToManualWithoutError() async {
         resetFaceDetectionTimer()
+        resetMultiFaceState()
         currentState = .manual
         currentFeedback = .none
+        await view?.updateDetectedFaceBoundingBoxes([])
         await updateUI()
+    }
+
+    /// Advances the multi-face hysteresis state and emits boxes when active.
+    /// Returns `true` when the caller in `detectionsReceived` should hold the
+    /// current UI and skip the single/no-face branches — either because we
+    /// just emitted multi-face boxes, or because we are in the enter-warmup
+    /// window waiting for confirmation. Returns `false` to let those run.
+    private func shouldWaitAfterApplyingHysteresis(
+        isMultiFaceFrame: Bool,
+        renderableBoxes: [CGRect]
+    ) async -> Bool {
+        advanceHysteresisCounters(isMultiFaceFrame: isMultiFaceFrame)
+
+        if multiFaceActive, !isMultiFaceFrame, multiFaceClearCount >= Self.multiFaceExitFrames {
+            multiFaceActive = false
+            smoothedMultiFaceBoxes = []
+        } else if !multiFaceActive, isMultiFaceFrame, multiFaceConfirmCount >= Self.multiFaceEnterFrames {
+            multiFaceActive = true
+        }
+
+        guard multiFaceActive else {
+            // Inactive: hold the prior UI only while the enter-warmup window
+            // is still confirming; otherwise let the caller continue.
+            return isMultiFaceFrame
+        }
+
+        // Active: emit smoothed boxes for the current frame, or hold the
+        // previous smoothed boxes through the exit-warmup window so a
+        // 1-frame dropout doesn't visibly flicker the ovals.
+        let toEmit = isMultiFaceFrame
+            ? smoothMultiFaceBoxes(renderableBoxes)
+            : smoothedMultiFaceBoxes
+        await view?.updateDetectedFaceBoundingBoxes(toEmit)
+        await resetTimerAndUpdateFeedback(.multiplePeople)
+        return true
+    }
+
+    private func advanceHysteresisCounters(isMultiFaceFrame: Bool) {
+        guard isMultiFaceFrame else {
+            multiFaceClearCount += 1
+            multiFaceConfirmCount = 0
+            return
+        }
+        multiFaceConfirmCount += 1
+        multiFaceClearCount = 0
+    }
+
+    /// Resets the multi-face hysteresis and smoothing state. Call whenever the
+    /// presenter stops emitting per-face ovals so a later re-entry starts clean.
+    private func resetMultiFaceState() {
+        multiFaceConfirmCount = 0
+        multiFaceClearCount = 0
+        multiFaceActive = false
+        smoothedMultiFaceBoxes = []
+    }
+
+    /// EMA-smooths per-face boxes against the previous frame so stationary faces
+    /// stop "throbbing" between Vision frames. Boxes are sorted by midX so the
+    /// SwiftUI ForEach offset stays bound to the same face across frames (kills
+    /// detector-side ID switches).
+    private func smoothMultiFaceBoxes(_ rawBoxes: [CGRect]) -> [CGRect] {
+        let sortedRaw = rawBoxes.sorted { $0.midX < $1.midX }
+
+        guard !smoothedMultiFaceBoxes.isEmpty,
+              smoothedMultiFaceBoxes.count == sortedRaw.count else {
+            // First frame in a multi-face episode, or face count changed —
+            // snap to the new boxes instead of blending across mismatched counts.
+            smoothedMultiFaceBoxes = sortedRaw
+            return sortedRaw
+        }
+
+        let alpha = Self.multiFaceSmoothingAlpha
+        let blended = zip(sortedRaw, smoothedMultiFaceBoxes).map { raw, prev in
+            CGRect(
+                x: prev.minX * (1 - alpha) + raw.minX * alpha,
+                y: prev.minY * (1 - alpha) + raw.minY * alpha,
+                width: prev.width * (1 - alpha) + raw.width * alpha,
+                height: prev.height * (1 - alpha) + raw.height * alpha
+            )
+        }
+        smoothedMultiFaceBoxes = blended
+        return blended
     }
 }
 
 extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
     func viewDidLoad() async {
-        let uploadUrl = await router?.uploadUrl
+        let uploadUrl = await router?.consumeUploadUrl()
         interactor?.setUploadUrl(uploadUrl)
         if !isSettingUpCamera {
             debugLog("🟢 PassiveCapturePresenter: viewDidLoad - triggering initial setup")
@@ -583,20 +707,39 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
             return true
         }
 
+        let renderableBoxes = faces
+            .map(\.boundingBox)
+            .filter { $0.height >= Self.minMultiFaceRenderHeight }
+        // Classify multi-face on the raw face count so the .multiplePeople
+        // toast still fires when a tiny background face is filtered out by
+        // minMultiFaceRenderHeight; that filter only gates rendering.
+        let isMultiFaceFrame = faces.count >= 2
+
+        if await shouldWaitAfterApplyingHysteresis(
+            isMultiFaceFrame: isMultiFaceFrame,
+            renderableBoxes: renderableBoxes
+        ) {
+            return
+        }
+
         guard !faces.isEmpty else {
+            await view?.updateDetectedFaceBoundingBoxes([])
             await resetTimerAndUpdateFeedback(.showFace)
             return
         }
 
-        guard faces.count == 1 else {
-            await resetTimerAndUpdateFeedback(.multiplePeople)
-            return
-        }
+        await view?.updateDetectedFaceBoundingBoxes([])
 
         // Single face detected - check if centered on the oval
         guard isFaceCenteredOnOval(faces[0]) else {
             debugLog("🟠 Face not centered on oval, showing CENTER_FACE feedback")
             await resetTimerAndUpdateFeedback(.centerFace)
+            return
+        }
+
+        guard isFaceFacingForward(faces[0]) else {
+            debugLog("🟠 Face not facing forward, showing LOOK_FORWARD feedback")
+            await resetTimerAndUpdateFeedback(.lookForward)
             return
         }
 
@@ -793,6 +936,8 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
             lifecycleState = .ready
         }
         showHelpDialog = true
+        resetMultiFaceState()
+        await view?.updateDetectedFaceBoundingBoxes([])
         await updateUI()
     }
 
