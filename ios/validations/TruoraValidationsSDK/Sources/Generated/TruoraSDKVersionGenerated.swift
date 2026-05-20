@@ -7,5 +7,5 @@
 //
 
 enum TruoraSDKVersion {
-    static let current = "1.3.0-alpha.1"
+    static let current = "1.3.0"
 }
