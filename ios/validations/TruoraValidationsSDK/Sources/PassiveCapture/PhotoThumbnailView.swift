@@ -24,24 +24,23 @@ struct PhotoThumbnailView: View {
                 .frame(width: size, height: size)
                 .clipped()
 
-            // Status Overlays
+            // Status overlays: dim the thumbnail, then center a 24px indicator
+            // (matches the Figma loading/success thumbnail states).
+            if uploadState == .uploading || uploadState == .success {
+                Color(red: 1.0 / 255.0, green: 12.0 / 255.0, blue: 35.0 / 255.0)
+                    .opacity(0.28)
+                    .frame(width: size, height: size)
+            }
+
             if uploadState == .uploading {
-                ZStack {
-                    // Spinner #447AEE
-                    ActivityIndicator(
-                        isAnimating: .constant(true),
-                        style: .large,
-                        color: UIColor(red: 0.267, green: 0.478, blue: 0.933, alpha: 1.0)
-                    )
-                    .scaleEffect(1.4)
-                }
+                CircularSpinnerView(size: size * 0.5, lineWidth: size * 0.05, color: .white)
             } else if uploadState == .success {
                 ZStack {
                     Circle()
                         .fill(theme.colors.layoutSuccess)
-                        .frame(width: size * 0.60, height: size * 0.60)
+                        .frame(width: size * 0.5, height: size * 0.5)
                     SwiftUI.Image(systemName: "checkmark")
-                        .font(.system(size: size * 0.25, weight: .bold))
+                        .font(.system(size: size * 0.29, weight: .bold))
                         .foregroundColor(.white)
                 }
             }

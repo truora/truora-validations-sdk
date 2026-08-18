@@ -369,4 +369,49 @@ private final class APIURLProtocolStub: URLProtocol {
             XCTFail("Expected TruoraAPIError, got \(error)")
         }
     }
+
+    func testGetDocumentSelection_success_returnsResponse() async throws {
+        // Given
+        let json = """
+        {
+            "countries": [
+                {
+                    "country": "CO",
+                    "display_name": "Colombia",
+                    "flag": {
+                        "url": "https://example.com/flag.png"
+                    },
+                    "document_types": [
+                        {
+                            "document_type": "national-id",
+                            "display_name": "National ID",
+                            "examples": []
+                        }
+                    ]
+                }
+            ]
+        }
+        """
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let response = try XCTUnwrap(try HTTPURLResponse(
+            url: XCTUnwrap(URL(string: "https://api.validations.truora.com/v1/config/document-selection")),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        APIURLProtocolStub.stub = .init(data: data, response: response, error: nil)
+
+        // When
+        let result = try await sut.getDocumentSelection()
+
+        // Then
+        XCTAssertEqual(result.countries.count, 1)
+        XCTAssertEqual(result.countries[0].country, "CO")
+        XCTAssertEqual(result.countries[0].displayName, "Colombia")
+        XCTAssertEqual(result.countries[0].flag.url, "https://example.com/flag.png")
+        XCTAssertEqual(result.countries[0].documentTypes.count, 1)
+        XCTAssertEqual(result.countries[0].documentTypes[0].documentType, "national-id")
+        XCTAssertEqual(result.countries[0].documentTypes[0].displayName, "National ID")
+        XCTAssertEqual(result.countries[0].documentTypes[0].examples.count, 0)
+    }
 }

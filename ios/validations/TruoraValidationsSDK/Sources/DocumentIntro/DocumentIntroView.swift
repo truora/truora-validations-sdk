@@ -88,7 +88,7 @@ struct DocumentIntroContentView: View {
                 // Illustration with bottom fade - matches PassiveIntroContentView pattern
                 TruoraValidationsSDKAsset.documentIntro.swiftUIImage
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
                     .frame(maxHeight: maxImageHeight, alignment: .top)
                     .frame(maxWidth: isPhone ? .infinity : 1024)
                     .clipped()

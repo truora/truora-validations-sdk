@@ -300,6 +300,36 @@ import XCTest
         XCTAssertTrue(mockRouter.handleErrorCalled)
     }
 
+    func testValidationFailed_retriesExhausted_endsAsCompletedFailureNotError() async throws {
+        var received: TruoraValidationResult<ValidationResult>?
+        try await ValidationConfig.shared.configure(
+            apiKey: "k",
+            accountId: "acc-1",
+            delegate: { received = $0 }
+        )
+        // Arrive from a retriable failure: the prior validation id is queued on the router
+        // and consumed by the retry createValidation in viewDidLoad.
+        mockRouter.pendingInvoiceRetryValidationId = "VLD-prev"
+        await sut.viewDidLoad()
+
+        // The interactor wraps the backend 400 body inside a network error message.
+        let error = TruoraException.network(
+            message: "Failed to create validation: Server error (400): " +
+                "{\"message\":\"Invalid request: retries for validation are no longer available\"}",
+            underlyingError: nil
+        )
+
+        await sut.validationFailed(error)
+
+        XCTAssertFalse(mockRouter.handleErrorCalled, "retry-exhaustion must not surface as an SDK error")
+        guard case .completed(let result)? = received else {
+            return XCTFail("expected .completed(failure), got \(String(describing: received))")
+        }
+        // Terminal failure result carrying the prior validation id (not an error).
+        XCTAssertEqual(result.status, .failure)
+        XCTAssertEqual(result.validationId, "VLD-prev")
+    }
+
     func testFileUploadCompleted_noOp() async {
         await sut.fileUploadCompleted()
         // Verifies no crash — there's no observable side effect by design.
@@ -437,7 +467,9 @@ import XCTest
         navigateToResultCalled = true
         navigateToResultLoadingType = loadingType
         navigateToResultValidationId = validationId
-        if let navigateToResultShouldThrow { throw navigateToResultShouldThrow }
+        if let navigateToResultShouldThrow {
+            throw navigateToResultShouldThrow
+        }
     }
 
     override func presentInvoiceFilePicker(presenter: InvoiceInstructionsViewToPresenter) {

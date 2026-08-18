@@ -7,7 +7,7 @@ import XCTest
 final class MockTimeProvider: @preconcurrency TimeProvider {
     private(set) var scheduledTimerCalls: [(interval: TimeInterval, repeats: Bool, block: (Timer) -> Void)] = []
     private(set) var sleepCalls: [UInt64] = []
-    private var sleepContinuations: [CheckedContinuation<Void, Error>] = []
+    var sleepContinuations: [CheckedContinuation<Void, Error>] = []
     var currentTime: Date = .init()
     var sleepCalledExpectation: XCTestExpectation?
 

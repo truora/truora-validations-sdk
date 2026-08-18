@@ -52,7 +52,7 @@ struct TruoraPrimaryButton: View {
                     )
                 } else {
                     Text(title)
-                        .font(theme.typography.labelLarge)
+                        .font(theme.typography.labelMedium)
                 }
             }
             .frame(maxWidth: .infinity)

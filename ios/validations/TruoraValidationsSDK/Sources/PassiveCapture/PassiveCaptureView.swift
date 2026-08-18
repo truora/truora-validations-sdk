@@ -24,23 +24,23 @@ struct PassiveCaptureView: View {
             CameraViewWrapper(viewModel: viewModel)
                 .extendingIntoSafeArea()
 
-            // Capture overlay (native) - matches KMP layout structure
-            VStack(spacing: 0) {
-                // Overlay with status bar padding
-                PassiveCaptureOverlayView(
-                    state: viewModel.state,
-                    feedback: viewModel.feedback,
-                    countdown: viewModel.countdown,
-                    lastFrameData: viewModel.lastFrameData,
-                    uploadState: viewModel.uploadState,
-                    detectedFaceBoxes: viewModel.detectedFaceBoxes
-                ) { viewModel.handleEvent(.recordingCompleted) }
-                    .modifier(AccessibilityIdentifierModifier(identifier: accessibilityIdentifierForState))
+            PassiveCaptureOverlayView(
+                state: viewModel.state,
+                feedback: viewModel.feedback,
+                countdown: viewModel.countdown,
+                lastFrameData: viewModel.lastFrameData,
+                uploadState: viewModel.uploadState,
+                detectedFaceBoxes: viewModel.detectedFaceBoxes,
+                isActivelyRecording: viewModel.isActivelyRecording
+            ) { viewModel.handleEvent(.recordingCompleted) }
+                .modifier(AccessibilityIdentifierModifier(identifier: accessibilityIdentifierForState))
 
-                // Help button is hidden while the camera is actively recording video (feedback == .recording)
-                // and during upload, to prevent stopping the recording and sending incomplete video to the backend.
+            // Help button is hidden while the camera is actively recording video and during
+            // upload, to prevent stopping the recording and sending incomplete video to the backend.
+            VStack(spacing: 0) {
+                Spacer()
                 PassiveCaptureBottomBar(
-                    showHelpButton: viewModel.feedback != .recording && viewModel.uploadState == .none
+                    showHelpButton: !viewModel.isActivelyRecording && viewModel.uploadState == .none
                 ) { viewModel.handleEvent(.helpRequested) }
             }
 

@@ -52,10 +52,12 @@ struct TruoraColors {
     var layoutGray700: Color
     var layoutGray900: Color
     var layoutTint20: Color
+    var layoutTint50: Color
     var layoutWarning: Color
     var layoutSuccess: Color
     var layoutRed700: Color
     var layoutOverlay: Color
+    var faceOverlayColor: Color
     var gray800: Color
     var gray600: Color
     var primary900: Color
@@ -80,15 +82,17 @@ struct TruoraColors {
         self.layoutGray700 = Color(red: 0.38, green: 0.38, blue: 0.38)
         self.layoutGray900 = Color(red: 0.13, green: 0.13, blue: 0.13)
         self.layoutTint20 = Color(red: 0.50, green: 0.51, blue: 0.57) // #808191
-        self.layoutWarning = Color(red: 1.00, green: 0.73, blue: 0.00) // #FFBB00
+        self.layoutTint50 = Color(red: 0.318, green: 0.361, blue: 0.388) // #515C63
+        self.layoutWarning = Color(red: 0.929, green: 0.835, blue: 0.608) // #EDD59B feedback pill background
         self.layoutSuccess = Color(red: 0.19, green: 0.77, blue: 0.55) // #31C48D
         self.layoutRed700 = Color(red: 0.73, green: 0.16, blue: 0.16) // #B82828 error red
         self.layoutOverlay = Color(red: 0.12, green: 0.16, blue: 0.18).opacity(0.8) // #1F282D with CC alpha
+        self.faceOverlayColor = Color(red: 0.847, green: 0.608, blue: 0.216) // #D89B37 guide oval
         self.gray800 = Color(red: 0.12, green: 0.16, blue: 0.22) // #1F2A37
         self.gray600 = Color(red: 0.29, green: 0.33, blue: 0.39) // #4B5563
         self.primary900 = Color(red: 0.03, green: 0.13, blue: 0.33) // #082054
         self.tint = Color(red: 0.16, green: 0.16, blue: 0.16) // #282828
-        self.tint00 = Color(red: 0.76, green: 0.76, blue: 0.80) // #C2C2CB Truora/Tint 00
+        self.tint00 = Color(red: 0.76, green: 0.76, blue: 0.80) // #C2C2CB
 
         // Apply config overrides if present
         if let config {

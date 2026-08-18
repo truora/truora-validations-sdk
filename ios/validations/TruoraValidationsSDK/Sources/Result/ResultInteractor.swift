@@ -88,19 +88,25 @@ extension ResultInteractor: ResultPresenterToInteractor {
 
 private extension ResultInteractor {
     func getBackoffIntervals() -> [UInt64] {
-        // Exponential-ish backoff: 1s, 2s, 4s, 8s, then 10s, 12s intervals (max ~68s total)
-        [
-            1_000_000_000, // 1s
-            2_000_000_000, // 2s
-            4_000_000_000, // 4s
-            8_000_000_000, // 8s
-            8_000_000_000, // 8s
-            8_000_000_000, // 8s
-            8_000_000_000, // 8s
-            8_000_000_000, // 8s
-            10_000_000_000, // 10s
-            12_000_000_000 // 12s
-        ]
+        // Mirrors Android polling (ValidationsApiJavaHelper.kt): exponential backoff
+        // capped at 30s, ~5 minutes total. Formula: min(1s * 2^attempt, 30s) until the
+        // cumulative wait reaches 5 min. Yields 1s, 2s, 4s, 8s, 16s, then 30s × 10
+        // (15 attempts, ~331s total).
+        let baseDelayNanos: UInt64 = 1_000_000_000 // 1s
+        let capNanos: UInt64 = 30_000_000_000 // 30s
+        let totalBudgetNanos: UInt64 = 300_000_000_000 // 5 min
+
+        var intervals: [UInt64] = []
+        var elapsed: UInt64 = 0
+        var attempt = 0
+        while elapsed < totalBudgetNanos {
+            let exponential = baseDelayNanos * UInt64(pow(2.0, Double(attempt)))
+            let delay = min(exponential, capNanos)
+            intervals.append(delay)
+            elapsed &+= delay
+            attempt &+= 1
+        }
+        return intervals
     }
 
     func shouldReturnResult(for validationDetail: NativeValidationDetailResponse) -> Bool {

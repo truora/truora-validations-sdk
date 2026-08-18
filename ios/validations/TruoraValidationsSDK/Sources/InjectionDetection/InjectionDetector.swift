@@ -110,19 +110,23 @@ final class InjectionDetector: @unchecked Sendable {
     ///   - blockingThreshold: Trust score below which the flow is blocked (default 50)
     ///   - bridge: Native detection bridge; defaults to `NativeDetectionBridge.create()`
     ///     which returns nil when the XCFramework binary is absent.
+    ///   - attestation: Hardware attestation provider; defaults to a no-op provider.
+    ///     Existing call sites compile unchanged because of the default value.
     /// - Returns: A new `DetectionReporter` actor bound to this detector
     func createReporter(
         logger: TruoraLogger,
         flowType: String,
         blockingThreshold: Int = 50,
-        bridge: (any DetectionBridging)? = NativeDetectionBridge.create()
+        bridge: (any DetectionBridging)? = NativeDetectionBridge.create(),
+        attestation: any AttestationProviding = NoOpAttestationProvider(reason: .disabled)
     ) -> DetectionReporter {
         DetectionReporter(
             detector: self,
             logger: logger,
             flowType: flowType,
             blockingThreshold: blockingThreshold,
-            bridge: bridge
+            bridge: bridge,
+            attestation: attestation
         )
     }
 }

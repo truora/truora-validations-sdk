@@ -15,6 +15,7 @@ struct PassiveCaptureOverlayView: View {
     let lastFrameData: Data?
     let uploadState: UploadState
     let detectedFaceBoxes: [CGRect]
+    var isActivelyRecording: Bool = false
     let onAnimationFinished: () -> Void
 
     @EnvironmentObject var theme: TruoraTheme
@@ -35,6 +36,25 @@ struct PassiveCaptureOverlayView: View {
     private let countdownHeaderMinTopPaddingRegular: CGFloat = 70
     private let countdownSmallPhoneHeightThreshold: CGFloat = 700
 
+    /// Maps the current state + feedback to the guide oval's gray/yellow/green state.
+    /// Multi-face is rendered as per-face ovals, so it does not affect the guide here.
+    private var ovalQualityState: OvalQualityState {
+        if isActivelyRecording {
+            return .ready
+        }
+        switch feedback {
+        case .none:
+            // No hint: green only while actively holding for capture (recording state),
+            // gray otherwise (countdown / manual idle).
+            return state == .recording ? .ready : .idle
+        case .showFace:
+            return .idle
+        case .centerFace, .moveCloser, .moveBack, .lookForward,
+             .hiddenFace, .removeGlasses, .multiplePeople:
+            return .scanning
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let screenWidth = geometry.size.width
@@ -47,9 +67,18 @@ struct PassiveCaptureOverlayView: View {
             // Calculate responsive thumbnail size (48px iPhone, max 90px iPad)
             let thumbnailSize = min(max(screenWidth * thumbnailWidthRatio, minThumbnailSize), maxThumbnailSize)
 
+            // Shared top padding for the countdown and upload headers - keeps text
+            // below the Dynamic Island. max() because safeAreaInsets.top can be 0
+            // when the overlay ignores the safe area.
+            let screenHeight = geometry.size.height
+            let minHeaderTopPadding: CGFloat = screenHeight < countdownSmallPhoneHeightThreshold
+                ? countdownHeaderMinTopPaddingSmallPhone
+                : countdownHeaderMinTopPaddingRegular
+            let headerTopPadding = max(countdownHeaderBaseTopPadding + geometry.safeAreaInsets.top, minHeaderTopPadding)
+
             ZStack {
                 // Semi-transparent mask with oval cutout OR progress indicator
-                if state == .recording, feedback == .recording {
+                if state == .recording, isActivelyRecording {
                     AnimatedOvalProgressView(
                         ovalWidth: ovalWidth,
                         ovalHeight: ovalHeight,
@@ -59,21 +88,25 @@ struct PassiveCaptureOverlayView: View {
                     OvalCutoutView(
                         ovalWidth: ovalWidth,
                         ovalHeight: ovalHeight,
+                        strokeColor: uploadOvalStrokeColor(for: uploadState, theme: theme),
+                        qualityState: ovalQualityState,
                         detectedFaceBoxes: detectedFaceBoxes
                     )
                 }
 
-                // Countdown header at top - padding so text stays below Dynamic Island
-                // Use max() because when overlay ignores safe area, safeAreaInsets.top can be 0
+                // Countdown header at top
                 if state == .countdown {
-                    let topInset = geometry.safeAreaInsets.top
-                    let screenHeight = geometry.size.height
-                    let minTopPadding: CGFloat = screenHeight < countdownSmallPhoneHeightThreshold
-                        ? countdownHeaderMinTopPaddingSmallPhone
-                        : countdownHeaderMinTopPaddingRegular
-                    let headerTopPadding = max(countdownHeaderBaseTopPadding + topInset, minTopPadding)
                     VStack {
                         PassiveCaptureCountdownHeaderView()
+                            .padding(.top, headerTopPadding)
+                        Spacer()
+                    }
+                }
+
+                // Upload status header ("Cargando…" / "¡Listo!")
+                if uploadState == .uploading || uploadState == .success {
+                    VStack {
+                        PassiveCaptureUploadHeaderView(uploadState: uploadState)
                             .padding(.top, headerTopPadding)
                         Spacer()
                     }
@@ -86,7 +119,7 @@ struct PassiveCaptureOverlayView: View {
 
                 // Feedback display - positioned relative to oval bottom
                 if state == .recording {
-                    PassiveCaptureFeedbackView(feedback: feedback)
+                    PassiveCaptureFeedbackView(feedback: feedback, isActivelyRecording: isActivelyRecording)
                         .offset(y: (ovalHeight / 2) + feedbackOffsetFromOvalBottom)
                 }
 
@@ -134,11 +167,12 @@ struct PassiveCaptureOverlayView: View {
 #Preview("Recording") {
     PassiveCaptureOverlayView(
         state: .recording,
-        feedback: .recording,
+        feedback: .none,
         countdown: 0,
         lastFrameData: nil,
         uploadState: .none,
-        detectedFaceBoxes: []
+        detectedFaceBoxes: [],
+        isActivelyRecording: true
     ) {}
         .environmentObject(TruoraTheme())
 }
@@ -150,6 +184,18 @@ struct PassiveCaptureOverlayView: View {
         countdown: 0,
         lastFrameData: UIImage(systemName: "person.fill")?.jpegData(compressionQuality: 0.8),
         uploadState: .uploading,
+        detectedFaceBoxes: []
+    ) {}
+        .environmentObject(TruoraTheme())
+}
+
+#Preview("Ready") {
+    PassiveCaptureOverlayView(
+        state: .recording,
+        feedback: .none,
+        countdown: 0,
+        lastFrameData: UIImage(systemName: "person.fill")?.jpegData(compressionQuality: 0.8),
+        uploadState: .success,
         detectedFaceBoxes: []
     ) {}
         .environmentObject(TruoraTheme())

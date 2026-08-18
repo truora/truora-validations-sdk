@@ -703,4 +703,351 @@ final class DetectionReporterTests: XCTestCase {
             "Sequential actor calls guarantee update precedes report"
         )
     }
+
+    // MARK: - Attestation metadata fields
+
+    func testReportLayer_attestation_pendingSnapshot_emitsCorrectFields() async {
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.pending)
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("init")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertEqual(metadata?["attest_status"] as? String, "pending")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "none")
+        XCTAssertEqual(metadata?["device_api_level"] as? Int, 0)
+    }
+
+    func testReportLayer_attestation_readySnapshot_emitsCorrectFields() async {
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.ready(token: "tok123", type: "app_attest"))
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("camera")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertEqual(metadata?["attest_status"] as? String, "ok")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "tok123")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "app_attest")
+        XCTAssertEqual(metadata?["device_api_level"] as? Int, 0)
+    }
+
+    func testReportLayer_attestation_unavailableSnapshot_emitsCorrectFields() async {
+        // B4-4: assert all four fields, not just attest_status.
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.unavailable(reason: "unsupported"))
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("runtime")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertEqual(metadata?["attest_status"] as? String, "unavailable_unsupported")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "none")
+        XCTAssertEqual(metadata?["device_api_level"] as? Int, 0)
+    }
+
+    func testReportLayer_attestation_unavailableDisabled_emitsCorrectFields() async {
+        // B4-4: "disabled" must produce unavailable_disabled, not unavailable_unsupported.
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.unavailable(reason: "disabled"))
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("init")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertEqual(metadata?["attest_status"] as? String, "unavailable_disabled")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "none")
+        XCTAssertEqual(metadata?["device_api_level"] as? Int, 0)
+    }
+
+    func testReportLayer_attestation_errorTimeoutSnapshot_emitsCorrectFields() async {
+        // B4-4: assert all four fields, not just attest_status.
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.error(reason: "timeout"))
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("init")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertEqual(metadata?["attest_status"] as? String, "error_timeout")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "none")
+        XCTAssertEqual(metadata?["device_api_level"] as? Int, 0)
+    }
+
+    func testReportLayer_attestation_errorQuotaSnapshot_emitsCorrectFields() async {
+        // B4-4: quota branch also asserts all four fields.
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.error(reason: "quota"))
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("camera")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertEqual(metadata?["attest_status"] as? String, "error_quota")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "none")
+        XCTAssertEqual(metadata?["device_api_level"] as? Int, 0)
+    }
+
+    func testReportLayer_attestation_errorKeychainSnapshot_emitsCorrectFields() async {
+        // B4-4: keychain branch.
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.error(reason: "keychain"))
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("runtime")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertEqual(metadata?["attest_status"] as? String, "error_keychain")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "none")
+        XCTAssertEqual(metadata?["device_api_level"] as? Int, 0)
+    }
+
+    func testReportLayer_attestation_presentInAllThreeLayers() async {
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.pending)
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("init")
+        _ = await reporter.reportLayer("camera")
+        _ = await reporter.reportLayer("runtime")
+
+        XCTAssertEqual(logger.entries.count, 3)
+        for entry in logger.entries {
+            XCTAssertNotNil(
+                entry.metadata?["attest_status"],
+                "attest_status must be present in \(entry.eventName)"
+            )
+            XCTAssertNotNil(
+                entry.metadata?["attest_token"],
+                "attest_token must be present in \(entry.eventName)"
+            )
+            XCTAssertNotNil(
+                entry.metadata?["attest_type"],
+                "attest_type must be present in \(entry.eventName)"
+            )
+            XCTAssertNotNil(
+                entry.metadata?["device_api_level"],
+                "device_api_level must be present in \(entry.eventName)"
+            )
+        }
+    }
+
+    func testReportLayer_defaultReporter_hasNoOpAttestationFields() async {
+        // The default (no attestation param) must still emit the four fields
+        // via the NoOpAttestationProvider default.
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        // Default init — no attestation param
+        let reporter = DetectionReporter(detector: detector, logger: logger, flowType: "face")
+
+        _ = await reporter.reportLayer("init")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertNotNil(metadata?["attest_status"])
+        XCTAssertNotNil(metadata?["attest_token"])
+        XCTAssertNotNil(metadata?["attest_type"])
+        XCTAssertNotNil(metadata?["device_api_level"])
+    }
+
+    func testReportLayer_defaultReporter_emitsUnavailableUnsupported() async {
+        // I6: the default no-op provider signals "this integrator did not wire a real
+        // attestation provider" — which is semantically "unsupported", not "disabled".
+        // "disabled" means the integrator explicitly opted out via config; the default
+        // NoOp is a passive absence of configuration.
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let reporter = DetectionReporter(detector: detector, logger: logger, flowType: "face")
+
+        _ = await reporter.reportLayer("init")
+
+        let attestStatus = logger.entries.first?.metadata?["attest_status"] as? String
+        XCTAssertEqual(
+            attestStatus,
+            "unavailable_unsupported",
+            "Default no-op provider must emit unavailable_unsupported, not unavailable_disabled"
+        )
+    }
+
+    // MARK: - B4-3: Attestation fields must NOT overwrite base detection metadata
+
+    func testReportLayer_attestationDoesNotOverwrite_trustScore() async {
+        // The merge closure { current, _ in current } ensures that if attestation metadata
+        // ever gains a key that collides with base metadata, the base value survives.
+        // Regression: verify trust_score is present and consistent with the detector result
+        // even when an attestation provider is active.
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.ready(token: "tok", type: "app_attest"))
+        let reporter = DetectionReporter(
+            detector: detector, logger: logger, flowType: "face", bridge: nil,
+            attestation: attestation
+        )
+
+        _ = await reporter.reportLayer("init")
+
+        let metadata = logger.entries.first?.metadata
+        // trust_score must be present — it comes from the base metadata, not attestation.
+        XCTAssertNotNil(metadata?["trust_score"], "trust_score must be present in merged metadata")
+        // Attestation fields must also be present alongside base fields — no clobbering.
+        XCTAssertEqual(metadata?["attest_status"] as? String, "ok")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "tok")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "app_attest")
+        XCTAssertNotNil(metadata?["risk_bitmask"], "risk_bitmask must survive attestation merge")
+        XCTAssertNotNil(metadata?["signature"], "signature must survive attestation merge")
+    }
+
+    // MARK: - B-cycle2: Merge-closure collision regression
+
+    /// Hard guarantee: if the attestation metadata builder ever produces a key
+    /// that COLLIDES with a base detection key, the merge closure
+    /// `{ current, _ in current }` must preserve the base value. Previous
+    /// version of this test set only used the production `buildAttestationMetadata`
+    /// mapper, which by construction never emits colliding keys — so reversing
+    /// the merge strategy would have passed silently.
+    ///
+    /// Here we inject a builder that DELIBERATELY emits every base key with a
+    /// poisoned sentinel value. The merge closure is exercised at every key
+    /// site; the assertions then prove the base values survived unchanged.
+    func testReportLayer_collidingAttestationBuilder_baseMetadataWins() async {
+        let detector = makeDetector()
+        let logger = MockDetectionLogger()
+        let attestation = MockAttestationProvider()
+        await attestation.setSnapshot(.ready(token: "tok", type: "app_attest"))
+
+        // Poisoned builder: emits every base key with a sentinel value that would
+        // be obviously wrong if the merge strategy were reversed.
+        let poisonedBuilder: @Sendable (AttestationSnapshot) -> [String: Any] = { _ in
+            [
+                "trust_score": -999, // base is the real Int from the detector
+                "risk_bitmask": "POISONED", // base is the hex String of accumulatedBitmask
+                "delta_bitmask": "POISONED", // base is the hex String of the delta
+                "ts": UInt64(0), // base is the real epoch timestamp
+                "bitmask_v": -1, // base is BitmaskEncoder.version
+                "signature": "POISONED", // base is the computed signature or "unsigned"
+                // Non-colliding keys must still appear in the merged output.
+                "attest_status": "ok",
+                "attest_token": "tok",
+                "attest_type": "app_attest",
+                "device_api_level": 0
+            ]
+        }
+
+        let reporter = DetectionReporter(
+            detector: detector,
+            logger: logger,
+            flowType: "face",
+            bridge: nil,
+            attestation: attestation,
+            attestationMetadataBuilder: poisonedBuilder
+        )
+
+        _ = await reporter.reportLayer("init")
+
+        let metadata = logger.entries.first?.metadata
+        XCTAssertNotNil(metadata, "Reporter must have logged an entry")
+
+        // 1) Base keys MUST NOT carry the poisoned sentinel — the merge closure
+        //    must keep the production value from baseMetadata.
+        if let trustScore = metadata?["trust_score"] as? Int {
+            XCTAssertNotEqual(
+                trustScore, -999,
+                "trust_score was overwritten by attestation builder; merge closure is reversed"
+            )
+        } else {
+            XCTFail("trust_score must be an Int from base metadata, got \(String(describing: metadata?["trust_score"]))")
+        }
+
+        let riskBitmask = metadata?["risk_bitmask"] as? String
+        XCTAssertNotEqual(
+            riskBitmask, "POISONED",
+            "risk_bitmask was overwritten by attestation builder; merge closure is reversed"
+        )
+        XCTAssertNotNil(riskBitmask, "risk_bitmask must remain a String from base metadata")
+
+        let deltaBitmask = metadata?["delta_bitmask"] as? String
+        XCTAssertNotEqual(
+            deltaBitmask, "POISONED",
+            "delta_bitmask was overwritten by attestation builder; merge closure is reversed"
+        )
+
+        if let ts = metadata?["ts"] as? UInt64 {
+            XCTAssertNotEqual(
+                ts, 0,
+                "ts was overwritten by attestation builder; merge closure is reversed"
+            )
+        } else {
+            XCTFail("ts must be a UInt64 from base metadata, got \(String(describing: metadata?["ts"]))")
+        }
+
+        if let bitmaskV = metadata?["bitmask_v"] as? Int {
+            XCTAssertNotEqual(
+                bitmaskV, -1,
+                "bitmask_v was overwritten by attestation builder; merge closure is reversed"
+            )
+        } else {
+            XCTFail("bitmask_v must be an Int from base metadata, got \(String(describing: metadata?["bitmask_v"]))")
+        }
+
+        let signature = metadata?["signature"] as? String
+        XCTAssertNotEqual(
+            signature, "POISONED",
+            "signature was overwritten by attestation builder; merge closure is reversed"
+        )
+
+        // 2) Non-colliding attestation keys MUST still flow through unchanged.
+        XCTAssertEqual(metadata?["attest_status"] as? String, "ok")
+        XCTAssertEqual(metadata?["attest_token"] as? String, "tok")
+        XCTAssertEqual(metadata?["attest_type"] as? String, "app_attest")
+        XCTAssertEqual(metadata?["device_api_level"] as? Int, 0)
+    }
 }
+
+// (No extra test doubles needed — MockAttestationProvider is defined in MockAttestationProvider.swift)

@@ -12,7 +12,7 @@ import Foundation
 private class BundleFinder {}
 extension Foundation.Bundle {
 /// Since TruoraValidationsSDK is a static library, the bundle containing the resources is copied into the final product.
-    static let module: Bundle = {
+    nonisolated static let module: Bundle = {
         let bundleName = "validations_TruoraValidationsSDK"
         let bundleFinderResourceURL = Bundle(for: BundleFinder.self).resourceURL
         var candidates = [
@@ -56,7 +56,7 @@ extension Foundation.Bundle {
 // MARK: - Objective-C Bundle Accessor
 @objc
 public final class TruoraValidationsSDKResources: NSObject {
-@objc public class var bundle: Bundle {
+@objc public nonisolated class var bundle: Bundle {
     return .module
 }
 }

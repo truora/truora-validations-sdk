@@ -154,8 +154,12 @@ class CameraManager: NSObject {
         static func current() -> UITestMode? {
             let args = ProcessInfo.processInfo.arguments
             guard args.contains("--uitesting") else { return nil }
-            if args.contains("--real-camera") { return .realCamera }
-            if args.contains("--real-ml") { return .realML }
+            if args.contains("--real-camera") {
+                return .realCamera
+            }
+            if args.contains("--real-ml") {
+                return .realML
+            }
             return .mock
         }
     }

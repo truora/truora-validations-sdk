@@ -13,6 +13,8 @@
 "passive_capture_feedback_center_face" = "Center your face in the oval";
 "passive_capture_feedback_look_forward" = "Look at the camera";
 "passive_capture_feedback_recording" = "Don't move!\nRecording";
+"passive_capture_feedback_move_closer" = "Move closer";
+"passive_capture_feedback_move_back" = "Move back";
 "passive_capture_record_video" = "record video";
 "passive_capture_cannot_record" = "We couldn't record.\nPress \"%@\".";
 "passive_capture_tips_title" = "Tips for a better capture";
@@ -37,6 +39,8 @@
 
 /* Loading */
 "passive_capture_loading_title" = "Verifying face...";
+"passive_capture_uploading_title" = "Loading…";
+"passive_capture_ready_title" = "Done!";
 "document_autocapture_loading_verifying" = "Verifying";
 "document_autocapture_loading_verifying_description" = "We are verifying the information\nThis may take a few seconds";
 
@@ -54,7 +58,7 @@
 
 /* Document Selection */
 "document_selection_title" = "Choose your document type";
-"document_selection_locked_title" = "Prepare this document";
+"document_selection_locked_title" = "Prepare your document";
 "document_selection_country_label" = "Country of your document:";
 "document_selection_country_placeholder" = "Select a country";
 "document_selection_country_error" = "Please select a country";
@@ -64,12 +68,17 @@
 "document_selection_accepted_documents" = "Accepted documents:";
 "document_selection_continue" = "Continue";
 "document_selection_loading" = "Loading...";
+"document_fixed_subtitle" = "Before scanning:";
+"document_first_suggestion" = "Have your physical document on hand";
+"document_second_suggestion" = "Clean your device's camera";
+"document_selection_locked_title_co_national_id" = "Prepare your ID";
 
 /* Document Intro */
 "document_intro_title" = "Prepare to scan your identity document";
 "document_intro_subtitle" = "Don't move, the document will be scanned automatically.";
 "document_intro_security_tip" = "Your information is protected.";
 "document_intro_start_capture" = "Scan document";
+"document_intro_start_capture_co_national_id" = "Scan ID";
 "document_intro_creating_validation" = "Creating validation...";
 
 /* Document Capture */
@@ -77,14 +86,13 @@
 "document_capture_back_side" = "Back side";
 "document_capture_front_label" = "Front";
 "document_capture_back_label" = "Back";
-"document_capture_front_instruction" = "Place the front of your document";
-"document_capture_back_instruction" = "Place the back of your document";
-"document_capture_rotate_instruction" = "Turn your document over";
-"document_capture_scanning" = "Scanning...";
+"document_capture_front_instruction" = "Place the front of the document inside the frame";
+"document_capture_back_instruction" = "Place the back of the document inside the frame";
+"document_capture_rotate_instruction" = "Turn the document over to scan the back";
+"document_capture_scanning" = "Don't move!\nScanning...";
 "document_capture_scanning_manual" = "Position your document";
 "document_capture_hold" = "Hold still";
 "document_capture_capturing" = "Capturing...";
-"document_capture_processing" = "Processing...";
 "document_capture_success" = "Document captured";
 "document_capture_error" = "Capture failed";
 "document_capture_take_photo" = "Take photo";
@@ -98,7 +106,7 @@
 "document_capture_feedback_locate" = "Place your document in the frame";
 "document_capture_feedback_closer" = "Move closer";
 "document_capture_feedback_further" = "Move further";
-"document_capture_feedback_rotate" = "Rotate your document";
+"document_capture_feedback_rotate" = "Turn the document over";
 "document_capture_feedback_center" = "Center your document";
 "document_capture_feedback_multiple" = "Only one document allowed";
 
@@ -228,9 +236,23 @@
 "invoice_feedback_tip_glare_mx" = "Avoid reflections or glare on the proof of address.";
 "invoice_feedback_tip_glare_co" = "Avoid reflections or glare on the invoice.";
 "invoice_feedback_tip_angle" = "Take the photo straight on, without an angle.";
+"invoice_feedback_blurry_title" = "Blurry image, we can't read the details";
+"invoice_feedback_blurry_desc" = "Make sure the text and numbers are easy to read.";
+"invoice_feedback_glare_title" = "There are reflections that don't let us see the details";
+"invoice_feedback_glare_desc" = "Ensure that the light does not illuminate your document directly.";
+"invoice_feedback_default_title" = "We couldn't process your image";
+"invoice_feedback_default_desc" = "Make sure it is well lit, in focus, and all information is clearly visible.";
 
 /* Cancel Alert */
 "cancel_alert_title" = "Cancel validation";
 "cancel_alert_message" = "You are about to cancel your current validation";
 "cancel_alert_confirm" = "Yes, cancel";
 "cancel_alert_cancel" = "No, go back";
+
+/* Authorization (enter_authorization step) */
+"authorization_title" = "Biometric data authorization";
+"authorization_accept" = "Accept";
+"authorization_data_policy_text" = "Check the Personal data processing policy.";
+"authorization_data_policy_link" = "Personal data processing policy";
+"authorization_required_fields_error" = "To continue, accept the required fields";
+"authorization_security_tip" = "Your information is protected and will only be used to verify your identity.";

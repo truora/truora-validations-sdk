@@ -49,25 +49,27 @@ final class InvoiceCountryContentTests: XCTestCase {
     }
 
     func testMX_providerLogos_matchExpected() {
+        let names = InvoiceCountryContent.mx.providerLogos.map(\.name)
         XCTAssertEqual(
-            InvoiceCountryContent.mx.providerLogoNames,
+            names,
             ["mx_invoice_cfe_logo", "mx_invoice_telmex_logo", "mx_invoice_totalplay_logo"]
         )
     }
 
     func testCO_providerLogos_matchExpected() {
+        let names = InvoiceCountryContent.co.providerLogos.map(\.name)
         XCTAssertEqual(
-            InvoiceCountryContent.co.providerLogoNames,
+            names,
             ["co_invoice_alcanos_logo", "co_invoice_gases_oriente_logo", "co_invoice_metrogas_logo"]
         )
     }
 
-    func testMX_logoSpacing_is40pt() {
-        XCTAssertEqual(InvoiceCountryContent.mx.logoSpacing, 40)
+    func testMX_logoSpacing_is24pt() {
+        XCTAssertEqual(InvoiceCountryContent.mx.logoSpacing, 24)
     }
 
-    func testCO_logoSpacing_is32pt() {
-        XCTAssertEqual(InvoiceCountryContent.co.logoSpacing, 32)
+    func testCO_logoSpacing_is20pt() {
+        XCTAssertEqual(InvoiceCountryContent.co.logoSpacing, 20)
     }
 
     func testMX_referenceImages_matchExpected() {

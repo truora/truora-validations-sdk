@@ -66,8 +66,8 @@ import XCTest
         )
         XCTAssertTrue(mockView.setupCameraCalled, "Should setup camera in view")
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update initial UI state")
-        XCTAssertEqual(mockInteractor.lastFrontUploadUrl, "https://files.truora.com/front")
-        XCTAssertEqual(mockInteractor.lastReverseUploadUrl, "https://files.truora.com/reverse")
+        XCTAssertEqual(mockInteractor.lastFrontUploadUrl, "https://example.com/front")
+        XCTAssertEqual(mockInteractor.lastReverseUploadUrl, "https://example.com/reverse")
     }
 
     func testViewDidLoad_withMissingFrontUrl_showsError() async {
@@ -95,7 +95,7 @@ import XCTest
         XCTAssertFalse(mockView.showErrorCalled, "Should NOT show error for single-sided documents")
         XCTAssertTrue(mockInteractor.setUploadUrlsCalled, "Should configure interactor")
         XCTAssertTrue(mockView.setupCameraCalled, "Should setup camera")
-        XCTAssertEqual(mockInteractor.lastFrontUploadUrl, "https://files.truora.com/front")
+        XCTAssertEqual(mockInteractor.lastFrontUploadUrl, "https://example.com/front")
         XCTAssertNil(
             mockInteractor.lastReverseUploadUrl, "Reverse URL should be nil for single-sided"
         )
@@ -625,10 +625,11 @@ import XCTest
         // When
         await sut.cameraReady()
 
-        // Then - audio instructions are not sent by the presenter (handled at view level)
-        XCTAssertNil(
+        // Then - presenter plays the place-the-front audio (restored in source)
+        XCTAssertEqual(
             mockView.lastAudioInstruction,
-            "Presenter does not send audio instructions; audio is handled at the view level"
+            .placeTheFront,
+            "cameraReady should play the place-the-front audio instruction"
         )
     }
 
@@ -641,10 +642,10 @@ import XCTest
         mockTimeProvider.resumeAllSleeps()
         await task.value
 
-        // Then - audio instructions are not sent by the presenter (handled at view level)
-        XCTAssertFalse(
+        // Then - presenter plays the place-the-back audio (restored in source)
+        XCTAssertTrue(
             mockView.audioInstructions.contains(.placeTheBack),
-            "Presenter does not send audio instructions; audio is handled at the view level"
+            "Transitioning to the back side should play the place-the-back audio instruction"
         )
     }
 
@@ -656,10 +657,11 @@ import XCTest
         // When - Model fails to load, triggering manual capture fallback
         await sut.switchToManualCapture()
 
-        // Then - audio instructions are not sent by the presenter (handled at view level)
-        XCTAssertNil(
+        // Then - presenter plays the document-not-found audio (restored in source)
+        XCTAssertEqual(
             mockView.lastAudioInstruction,
-            "Presenter does not send audio instructions; audio is handled at the view level"
+            .documentNotFound,
+            "Switching to manual capture should play the document-not-found audio instruction"
         )
     }
 
@@ -699,6 +701,7 @@ import XCTest
     private(set) var lastShowHelpDialog: Bool?
     private(set) var lastShowRotationAnimation: Bool?
     private(set) var lastShowLoadingScreen: Bool?
+    private(set) var lastUploadState: UploadState?
     private(set) var lastFrontPhotoStatus: CaptureStatus?
     private(set) var lastBackPhotoStatus: CaptureStatus?
     private(set) var lastClearFrontPhoto: Bool = false
@@ -740,6 +743,7 @@ import XCTest
         showHelpDialog: Bool,
         showRotationAnimation: Bool,
         showLoadingScreen: Bool,
+        uploadState: UploadState,
         frontPhotoData: Data?,
         frontPhotoStatus: CaptureStatus?,
         backPhotoData: Data?,
@@ -755,6 +759,7 @@ import XCTest
         lastShowHelpDialog = showHelpDialog
         lastShowRotationAnimation = showRotationAnimation
         lastShowLoadingScreen = showLoadingScreen
+        lastUploadState = uploadState
         lastFrontPhotoStatus = frontPhotoStatus
         lastBackPhotoStatus = backPhotoStatus
         lastClearFrontPhoto = clearFrontPhoto

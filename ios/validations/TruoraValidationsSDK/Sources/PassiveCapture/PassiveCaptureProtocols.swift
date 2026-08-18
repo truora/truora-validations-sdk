@@ -30,7 +30,8 @@ import UIKit
         showHelpDialog: Bool,
         showSettingsPrompt: Bool,
         lastFrameData: Data?,
-        uploadState: UploadState
+        uploadState: UploadState,
+        isActivelyRecording: Bool
     )
     func showError(_ message: String)
 
@@ -63,6 +64,16 @@ protocol PassiveCapturePresenterToInteractor: AnyObject {
     func uploadVideo(_ videoData: Data)
     func logFaceCaptureSucceeded() async
     func logFaceCaptureFailed(errorMessage: String) async
+    func logFaceQualityGatePassed(timeToReadyMs: Int) async
+    func logFaceQualityGateTimeout(lastHint: String) async
+    func logFaceVideoManualModeForced(triggerReason: FaceVideoManualTriggerReason) async
+    func logFaceQualitySessionSummary(
+        totalDurationMs: Int,
+        hintDurationsMs: [String: Int],
+        dominantHint: String,
+        dominantHintPercent: Int,
+        autocaptureFired: Bool
+    ) async
 }
 
 protocol PassiveCaptureInteractorToPresenter: AnyObject {

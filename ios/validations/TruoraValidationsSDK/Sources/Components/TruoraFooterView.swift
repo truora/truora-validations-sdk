@@ -37,10 +37,11 @@ struct TruoraFooterView: View {
                     TruoraValidationsSDKAsset.iconLock.swiftUIImage
                         .resizable()
                         .frame(width: 16, height: 16)
-                        .foregroundColor(theme.colors.layoutGray700)
+                        .foregroundColor(theme.colors.primary)
                     Text(tip)
-                        .font(theme.typography.bodySmall)
-                        .foregroundColor(theme.colors.layoutGray700)
+                        .font(theme.typography.labelSmall)
+                        .kerning(0.07)
+                        .foregroundColor(theme.colors.layoutTint50)
                 }
             }
 

@@ -190,6 +190,27 @@ public class TruoraAPIClient {
         }
     }
 
+    // MARK: - Config
+
+    func getDocumentSelection() async throws -> NativeDocumentSelectionResponse {
+        guard let url = URL(string: "\(baseUrl)/config/document-selection") else {
+            throw TruoraAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.addValue(apiKey, forHTTPHeaderField: "Truora-API-Key")
+
+        let (data, response) = try await sessionConfig.perform(urlRequest, using: session)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(NativeDocumentSelectionResponse.self, from: data)
+        } catch {
+            throw TruoraAPIError.decodingError(error)
+        }
+    }
+
     // MARK: - Private Helpers
 
     private func validateResponse(_ response: URLResponse, data: Data) throws {

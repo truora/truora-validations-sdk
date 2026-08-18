@@ -170,8 +170,8 @@ struct DocumentCaptureView: View {
 
     var body: some View {
         ZStack {
-            // Camera preview
             DocumentCameraViewWrapper(viewModel: viewModel)
+                .extendingIntoSafeArea()
 
             // Native capture overlay - matches KMP DocumentAutoCapture layout
             DocumentCaptureOverlayView(
@@ -179,6 +179,7 @@ struct DocumentCaptureView: View {
                 feedbackType: viewModel.feedbackType,
                 showHelpDialog: viewModel.showHelpDialog,
                 showRotationAnimation: viewModel.showRotationAnimation,
+                uploadState: viewModel.uploadState,
                 frontPhotoData: viewModel.frontPhotoData,
                 frontPhotoStatus: viewModel.frontPhotoStatus,
                 backPhotoData: viewModel.backPhotoData,
@@ -191,13 +192,6 @@ struct DocumentCaptureView: View {
                 onRetry: { viewModel.retryTapped() },
                 onSwitchToManual: { viewModel.userRequestedManualMode() }
             )
-
-            // Loading overlay
-            if viewModel.showLoadingScreen {
-                LoadingOverlayView(
-                    message: TruoraLocalization.string(forKey: LocalizationKeys.documentCaptureProcessing)
-                )
-            }
 
             #if DEBUG
             if let advisor = viewModel.performanceAdvisor {
@@ -249,6 +243,7 @@ struct DocumentCaptureOverlayView: View {
     let feedbackType: DocumentFeedbackType
     let showHelpDialog: Bool
     let showRotationAnimation: Bool
+    let uploadState: UploadState
     let frontPhotoData: Data?
     let frontPhotoStatus: CaptureStatus?
     let backPhotoData: Data?
@@ -264,11 +259,16 @@ struct DocumentCaptureOverlayView: View {
 
     @EnvironmentObject var theme: TruoraTheme
 
+    // Keeps header text clear of the Dynamic Island
+    private let headerBaseTopPadding: CGFloat = 16
+    private let headerMinTopPadding: CGFloat = 60
+
     init(
         side: DocumentCaptureSide,
         feedbackType: DocumentFeedbackType,
         showHelpDialog: Bool,
         showRotationAnimation: Bool,
+        uploadState: UploadState = .none,
         frontPhotoData: Data?,
         frontPhotoStatus: CaptureStatus?,
         backPhotoData: Data?,
@@ -285,6 +285,7 @@ struct DocumentCaptureOverlayView: View {
         self.feedbackType = feedbackType
         self.showHelpDialog = showHelpDialog
         self.showRotationAnimation = showRotationAnimation
+        self.uploadState = uploadState
         self.frontPhotoData = frontPhotoData
         self.frontPhotoStatus = frontPhotoStatus
         self.backPhotoData = backPhotoData
@@ -298,48 +299,68 @@ struct DocumentCaptureOverlayView: View {
         self.onSwitchToManual = onSwitchToManual
     }
 
+    private var shouldShowFeedback: Bool {
+        !showRotationAnimation && uploadState != .uploading && uploadState != .success
+    }
+
+    private var showHelpButton: Bool {
+        !(frontPhotoStatus == .success && backPhotoStatus == .success)
+            && uploadState == .none
+            && !showRotationAnimation
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with document icon and instructions - matches KMP DocumentAutoCaptureHeader
-            DocumentCaptureHeaderView(
-                side: side,
-                showRotationAnimation: showRotationAnimation
-            )
+        GeometryReader { geometry in
+            let headerTopPadding = max(headerBaseTopPadding + geometry.safeAreaInsets.top, headerMinTopPadding)
 
-            // Main content area with overlay mask
-            GeometryReader { geometry in
-                ZStack {
-                    // Overlay mask with rounded rectangle cutout
-                    DocumentCaptureOverlayMask(feedbackType: feedbackType)
+            ZStack {
+                DocumentCaptureOverlayMask(feedbackType: feedbackType)
 
-                    // Centered feedback message (inside the cutout area)
-                    if !showRotationAnimation {
-                        DocumentCaptureFeedbackMessage(feedbackType: feedbackType)
-                    } else {
-                        DocumentCaptureFeedbackMessage(feedbackType: .rotate)
-                    }
+                if showRotationAnimation {
+                    AnimatedGIFView(gifName: "rotate_document", size: CGSize(width: 250, height: 250))
+                        .frame(width: 250, height: 250)
+                        .transition(.opacity)
+                } else if shouldShowFeedback {
+                    DocumentCaptureFeedbackMessage(feedbackType: feedbackType)
+                        .transition(.opacity)
+                }
 
-                    // Thumbnails positioned below the mask
-                    DocumentCaptureThumbnails(
-                        geometry: geometry,
-                        frontPhotoData: frontPhotoData,
-                        frontPhotoStatus: frontPhotoStatus,
-                        backPhotoData: backPhotoData,
-                        backPhotoStatus: backPhotoStatus
+                // Thumbnails positioned below the mask
+                DocumentCaptureThumbnails(
+                    geometry: geometry,
+                    frontPhotoData: frontPhotoData,
+                    frontPhotoStatus: frontPhotoStatus,
+                    backPhotoData: backPhotoData,
+                    backPhotoStatus: backPhotoStatus
+                )
+
+                // Floats directly over the camera feed
+                VStack(spacing: 0) {
+                    DocumentCaptureHeaderView(
+                        side: side,
+                        showRotationAnimation: showRotationAnimation,
+                        uploadState: uploadState
                     )
+                    .padding(.top, headerTopPadding)
+                    Spacer()
+                }
+
+                // Floats directly over the camera feed
+                VStack(spacing: 0) {
+                    Spacer()
+                    DocumentCaptureFooter(
+                        feedbackType: feedbackType,
+                        showHelpButton: showHelpButton,
+                        isCaptureEnabled: isCaptureEnabled,
+                        onHelpClick: onHelp,
+                        onManualCapture: onCapture
+                    )
+                    .padding(.bottom, max(geometry.safeAreaInsets.bottom, 16))
                 }
             }
-
-            // Footer with help button and manual capture
-            // Hide help button when both sides are captured (both have success status)
-            DocumentCaptureFooter(
-                feedbackType: feedbackType,
-                showHelpButton: !(frontPhotoStatus == .success && backPhotoStatus == .success),
-                isCaptureEnabled: isCaptureEnabled,
-                onHelpClick: onHelp,
-                onManualCapture: onCapture
-            )
+            .animation(.easeInOut(duration: 0.35), value: showRotationAnimation)
         }
+        .extendingIntoSafeArea()
         .overlay(
             // Help dialog overlay
             Group {
@@ -357,18 +378,18 @@ struct DocumentCaptureOverlayView: View {
 // MARK: - Document Capture Header View
 
 /// Header section matching KMP/Figma DocumentAutoCaptureHeader
-/// Colored background extending edge-to-edge, document icon + instruction text
-/// Figma specs: height 180pt, icon 47x30 in 48x48 container, 16pt spacing, 18pt semibold text
 private struct DocumentCaptureHeaderView: View {
     let side: DocumentCaptureSide
     let showRotationAnimation: Bool
+    let uploadState: UploadState
 
     @EnvironmentObject var theme: TruoraTheme
 
     var body: some View {
         VStack(spacing: 16) {
-            if showRotationAnimation {
-                // Flip document instruction - two lines
+            if uploadState == .uploading || uploadState == .success {
+                PassiveCaptureUploadHeaderView(uploadState: uploadState)
+            } else if showRotationAnimation {
                 Text(TruoraLocalization.string(forKey: LocalizationKeys.documentCaptureRotateInstruction))
                     .font(theme.typography.titleMedium)
                     .foregroundColor(theme.colors.onSurfaceVariant)
@@ -379,7 +400,7 @@ private struct DocumentCaptureHeaderView: View {
                 // Icon is 47x30 inside a 48x48 container
                 documentIcon
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .scaledToFit()
                     .frame(width: 47, height: 30)
                     .frame(width: 48, height: 48)
 
@@ -396,8 +417,6 @@ private struct DocumentCaptureHeaderView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 180)
-        .background(theme.colors.surfaceVariant.extendingIntoSafeArea())
     }
 
     /// Returns the appropriate document icon based on side
@@ -505,6 +524,7 @@ private struct DocumentCaptureFeedbackMessage: View {
             Text(feedbackText)
                 .font(theme.typography.bodyMedium)
                 .foregroundColor(textColor)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
                 .background(backgroundColor)
@@ -597,9 +617,7 @@ private struct DocumentPhotoThumbnail: View {
                         }
                         .offset(x: 6, y: 6)
                     case .loading:
-                        ActivityIndicator(
-                            isAnimating: .constant(true), style: .medium, color: .white
-                        )
+                        CircularSpinnerView(size: 20, lineWidth: 2.5, color: .white)
                     }
                 }
             }
@@ -669,8 +687,7 @@ private struct DocumentCaptureFooter: View {
             }
             .padding(.horizontal, 24)
         }
-        .frame(height: 150)
-        .background(theme.colors.surfaceVariant.extendingIntoSafeArea())
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -699,6 +716,7 @@ struct DocumentCaptureTipsDialog: View {
         ZStack {
             // Semi-transparent background
             Color.black.opacity(0.5)
+                .extendingIntoSafeArea()
                 .onTapGesture { onDismiss() }
 
             // Dialog content

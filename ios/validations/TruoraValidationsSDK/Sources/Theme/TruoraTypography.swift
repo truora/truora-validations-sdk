@@ -17,6 +17,8 @@ struct TruoraTypography {
     let bodyMedium: Font
     let bodySmall: Font
     let labelLarge: Font
+    let labelMedium: Font
+    let labelSmall: Font
 
     init() {
         let isIPad = UIDevice.current.userInterfaceIdiom == .pad
@@ -24,22 +26,26 @@ struct TruoraTypography {
         // Design specs: iPhone uses compact sizes; iPad uses larger for readability.
         if isIPad {
             self.displayLarge = .system(size: 120, weight: .semibold)
-            self.titleLarge = .system(size: 40, weight: .semibold)
+            self.titleLarge = .system(size: 48, weight: .semibold)
             self.titleMedium = .system(size: 36, weight: .semibold)
-            self.titleSmall = .system(size: 24, weight: .semibold)
+            self.titleSmall = .system(size: 28, weight: .medium)
             self.bodyLarge = .system(size: 30, weight: .regular)
-            self.bodyMedium = .system(size: 24, weight: .regular)
+            self.bodyMedium = .system(size: 28, weight: .regular)
             self.bodySmall = .system(size: 18, weight: .regular)
             self.labelLarge = .system(size: 24, weight: .medium)
+            self.labelMedium = .system(size: 22, weight: .medium)
+            self.labelSmall = .system(size: 18, weight: .medium)
         } else {
             self.displayLarge = .system(size: 96, weight: .semibold)
-            self.titleLarge = .system(size: 20, weight: .semibold)
+            self.titleLarge = .system(size: 24, weight: .semibold)
             self.titleMedium = .system(size: 18, weight: .semibold)
-            self.titleSmall = .system(size: 14, weight: .semibold)
+            self.titleSmall = .system(size: 16, weight: .medium)
             self.bodyLarge = .system(size: 16, weight: .regular)
-            self.bodyMedium = .system(size: 14, weight: .regular)
+            self.bodyMedium = .system(size: 16, weight: .regular)
             self.bodySmall = .system(size: 12, weight: .regular)
             self.labelLarge = .system(size: 16, weight: .medium)
+            self.labelMedium = .system(size: 16, weight: .medium)
+            self.labelSmall = .system(size: 14, weight: .medium)
         }
     }
 }

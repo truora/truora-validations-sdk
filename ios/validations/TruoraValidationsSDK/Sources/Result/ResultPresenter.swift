@@ -233,14 +233,29 @@ extension ResultPresenter: ResultInteractorToPresenter {
 // MARK: - Private Methods
 
 private extension ResultPresenter {
-    /// Maps the backend-reported invoice `declined_reason` to a `FeedbackScenario`.
-    /// Only `document_not_recognized` renders the "not found" design — any other
-    /// reason (including missing/nil) falls back to the "missing text" design.
+    static let invoiceFeedbackScenarios: Set<FeedbackScenario> = [
+        .blurryImage,
+        .imageWithReflection,
+        .documentNotFound,
+        .lowLight,
+        .missingText,
+        .documentNotRecognized,
+        .documentHasExpired,
+        .wrongDocumentFound,
+        .grayscaleImage
+    ]
+
     func mapInvoiceDeclinedReason(_ declinedReason: String?) -> FeedbackScenario {
-        switch declinedReason?.lowercased() {
-        case "document_not_recognized": .documentNotRecognized
-        default: .missingText
+        guard let reason = declinedReason?.lowercased(),
+              let scenario = FeedbackScenario(rawValue: reason),
+              Self.invoiceFeedbackScenarios.contains(scenario) else {
+            debugLog(
+                "⚠️ ResultPresenter: Unknown invoice declinedReason "
+                    + "'\(declinedReason ?? "nil")'; falling back to documentNotFound"
+            )
+            return .documentNotFound
         }
+        return scenario
     }
 
     func shouldAutoDismiss(for status: ValidationStatus) -> Bool {

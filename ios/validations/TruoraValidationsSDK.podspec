@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = "TruoraValidationsSDK"
-  s.version          = "1.3.0"
+  s.version          = "1.3.2"
   s.summary          = "Truora's iOS SDK for identity verification and biometric validations"
   s.description      = <<-DESC
 TruoraValidationsSDK lets you embed Truora's identity verification flows into your iOS app.
@@ -43,7 +43,7 @@ DESC
     ]
   }
   s.frameworks         = ["UIKit", "Foundation", "SwiftUI"]
-  s.dependency         "TruoraCamera", "1.3.0"
+  s.dependency         "TruoraCamera", "1.3.2"
   s.pod_target_xcconfig = {
     "DEFINES_MODULE" => "YES",
     "SWIFT_VERSION"  => "5.9",

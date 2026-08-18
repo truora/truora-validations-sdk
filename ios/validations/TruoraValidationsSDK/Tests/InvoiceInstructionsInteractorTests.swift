@@ -399,7 +399,9 @@ import XCTest
 
     private func metadataString(_ event: SDKEvent?, _ key: String) -> String? {
         guard let value = event?.metadata[key] else { return nil }
-        if case .string(let str) = value { return str }
+        if case .string(let str) = value {
+            return str
+        }
         return nil
     }
 }

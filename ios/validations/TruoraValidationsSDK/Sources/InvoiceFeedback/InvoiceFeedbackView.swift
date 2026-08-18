@@ -224,14 +224,12 @@ struct InvoiceFeedbackView: View {
             return TruoraLocalization.string(forKey: content.feedbackNotFoundTitleKey)
         case .documentHasExpired:
             return TruoraLocalization.string(forKey: content.feedbackExpiredTitleKey)
-        case .blurryImage:
-            return TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackBlurryTitle)
+        case .blurryImage, .lowLight, .grayscaleImage:
+            return TruoraLocalization.string(forKey: LocalizationKeys.invoiceFeedbackBlurryTitle)
         case .imageWithReflection:
-            return TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackGlareTitle)
-        case .lowLight, .grayscaleImage:
-            return TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackDefaultTitle)
+            return TruoraLocalization.string(forKey: LocalizationKeys.invoiceFeedbackGlareTitle)
         default:
-            return TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackDefaultTitle)
+            return TruoraLocalization.string(forKey: LocalizationKeys.invoiceFeedbackDefaultTitle)
         }
     }
 
@@ -243,11 +241,11 @@ struct InvoiceFeedbackView: View {
         case .documentHasExpired:
             return TruoraLocalization.string(forKey: content.feedbackExpiredDescKey)
         case .blurryImage, .lowLight, .grayscaleImage:
-            return TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackBlurryDescription)
+            return TruoraLocalization.string(forKey: LocalizationKeys.invoiceFeedbackBlurryDesc)
         case .imageWithReflection:
-            return TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackGlareDescription)
+            return TruoraLocalization.string(forKey: LocalizationKeys.invoiceFeedbackGlareDesc)
         default:
-            return TruoraLocalization.string(forKey: LocalizationKeys.documentFeedbackNoDocumentDescription)
+            return TruoraLocalization.string(forKey: LocalizationKeys.invoiceFeedbackDefaultDesc)
         }
     }
 
@@ -286,7 +284,8 @@ struct InvoiceFeedbackView: View {
 
 /// Custom invoice icon shown on feedback screens.
 /// - missing_text / reflection: adds yellow sparkle stars (glare indicator)
-/// - document_not_found/recognized/wrongDocument: rotates -21.83° (tilted rejected document)
+/// - document_not_found/recognized/wrongDocument/expired: rotates -21.83° + bigger
+///   clipped illustration (tilted rejected document, mirrors Android's angle/folded SVG)
 /// - All scenarios: red X badge overlay at bottom-left
 private struct InvoiceFeedbackIconView: View {
     let feedback: FeedbackScenario
@@ -304,31 +303,31 @@ private struct InvoiceFeedbackIconView: View {
 
     private var rotationAngle: Double {
         switch feedback {
-        case .documentNotFound, .documentNotRecognized, .wrongDocumentFound:
+        case .documentNotFound, .documentNotRecognized, .wrongDocumentFound, .documentHasExpired:
             -21.83
         default:
             0
         }
     }
 
-    /// Per Figma: not_found uses a bigger illustration that gets clipped by the card,
-    /// while missing_text fits a smaller illustration inside.
+    /// Per Figma: not_found and expired use a bigger illustration that gets clipped by the
+    /// card, while missing_text fits a smaller illustration inside.
     private var illustrationSize: CGSize {
         switch feedback {
-        case .documentNotFound, .documentNotRecognized, .wrongDocumentFound:
+        case .documentNotFound, .documentNotRecognized, .wrongDocumentFound, .documentHasExpired:
             CGSize(width: 58, height: 79.6)
         default:
             CGSize(width: 39, height: 54)
         }
     }
 
-    /// Not-found scenarios offset the rotated illustration up-and-left so only the
+    /// Clipped-illustration scenarios offset the illustration up-and-left so only the
     /// top-left corner peeks into the card (matches Figma node 1155:1818 where the
     /// illustration center sits at (0.26, 9.75) in the 45×63 card coord space —
     /// i.e. (-22.24, -21.75) from the card center).
     private var illustrationOffset: CGSize {
         switch feedback {
-        case .documentNotFound, .documentNotRecognized, .wrongDocumentFound:
+        case .documentNotFound, .documentNotRecognized, .wrongDocumentFound, .documentHasExpired:
             CGSize(width: -22.24, height: -21.75)
         default:
             .zero
@@ -480,6 +479,9 @@ private struct TipCard: View {
     let caption: String
     @EnvironmentObject var theme: TruoraTheme
 
+    private let cardWidth: CGFloat = 130
+    private let cardHeight: CGFloat = 170
+
     private var borderColor: Color {
         switch type {
         case .corners:
@@ -496,19 +498,13 @@ private struct TipCard: View {
         }
     }
 
-    /// All badges straddle the card's bottom border (card is 130x170, so y=75 puts the
-    /// 34pt badge overlapping the bottom stroke).
-    private var badgeOffset: CGSize {
-        CGSize(width: 0, height: 85)
-    }
-
     var body: some View {
         VStack(spacing: 24) {
             ZStack {
                 // Base card with colored border
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(red: 0.69, green: 0.73, blue: 0.79)) // #B1BACA
-                    .frame(width: 130, height: 170)
+                    .frame(width: cardWidth, height: cardHeight)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(borderColor, lineWidth: 2)
@@ -531,7 +527,8 @@ private struct TipCard: View {
                         .foregroundColor(.white)
                 }
                 .shadow(color: Color.black.opacity(0.25), radius: 4, x: -2, y: 2)
-                .offset(badgeOffset)
+                // Badge center sits at the card's bottom edge.
+                .offset(x: 0, y: cardHeight / 2)
             }
 
             Text(caption)
@@ -623,6 +620,18 @@ private func createPlaceholderImageData() -> Data? {
     InvoiceFeedbackView(
         viewModel: InvoiceFeedbackViewModel(
             feedback: .missingText,
+            capturedImageData: createPlaceholderImageData(),
+            retriesLeft: 1,
+            country: "CO"
+        ),
+        config: nil
+    )
+}
+
+#Preview("Blurry - CO") {
+    InvoiceFeedbackView(
+        viewModel: InvoiceFeedbackViewModel(
+            feedback: .blurryImage,
             capturedImageData: createPlaceholderImageData(),
             retriesLeft: 1,
             country: "CO"

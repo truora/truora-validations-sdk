@@ -26,11 +26,15 @@ public extension Bundle {
         var candidates: [URL] = []
 
         // Main app bundle (most common location for SPM resource bundles)
-        if let url = Bundle.main.resourceURL { candidates.append(url) }
+        if let url = Bundle.main.resourceURL {
+            candidates.append(url)
+        }
         candidates.append(Bundle.main.bundleURL)
 
         // Bundle containing our compiled code
-        if let url = containingBundle.resourceURL { candidates.append(url) }
+        if let url = containingBundle.resourceURL {
+            candidates.append(url)
+        }
         candidates.append(containingBundle.bundleURL)
 
         // Parent directories (for framework/plugin scenarios)
@@ -52,7 +56,9 @@ public extension Bundle {
             let path = bundle.bundlePath
             return path.hasSuffix(bundleNameWithExtension) || path.contains(bundleName)
         }
-        if let bundle = matchingBundle { return bundle }
+        if let bundle = matchingBundle {
+            return bundle
+        }
 
         // Search all frameworks
         if let framework = Bundle.allFrameworks.first(where: { $0.bundlePath.contains(bundleName) }) {
@@ -69,7 +75,9 @@ public extension Bundle {
             localization: "es"
         ) != nil {
             let value = bundle.localizedString(forKey: testKey, value: testKey, table: nil)
-            if value != testKey { return bundle }
+            if value != testKey {
+                return bundle
+            }
         }
 
         // If main bundle has our resources (static linking scenario)

@@ -252,6 +252,9 @@ final class DocumentCapturePresenter {
     private var runtimeDetectionTask: Task<Void, Never>?
     private static let runtimeDetectionInterval: TimeInterval = 10.0
 
+    private static let rotationAnimationNanoseconds: UInt64 = 4_000_000_000
+    private static let successStateHoldNanoseconds: UInt64 = 1_000_000_000
+
     // MARK: - Autodetection Properties
 
     private var lifecycleState: CameraLifecycleState = .uninitialized
@@ -307,6 +310,7 @@ final class DocumentCapturePresenter {
             showHelpDialog: showHelpDialog,
             showRotationAnimation: showRotationAnimation,
             showLoadingScreen: showLoadingScreen,
+            uploadState: uploadState,
             frontPhotoData: frontPhotoDataUpdate,
             frontPhotoStatus: frontPhotoStatus,
             backPhotoData: backPhotoDataUpdate,
@@ -325,7 +329,7 @@ final class DocumentCapturePresenter {
 
         await view?.resumeCamera()
 
-        try? await timeProvider.sleep(nanoseconds: 1_800_000_000)
+        try? await timeProvider.sleep(nanoseconds: Self.rotationAnimationNanoseconds)
 
         showRotationAnimation = false
         currentSide = .back
@@ -721,9 +725,6 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
         showLoadingScreen = true
         evaluationErrorRetryCount = 0
 
-        // Pause camera to freeze preview on the captured frame
-        await view?.pauseCamera()
-
         // Reset detection timers during capture/upload
         detectionState.resetDocumentDetectionTimer()
         detectionState.resetDetectionProcessingTimer()
@@ -938,11 +939,7 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
                 // Reset state before showing error to allow user retry
                 feedbackType = useAutocapture ? .searching : .scanningManual
                 lifecycleState = .ready
-                do {
-                    try await view?.setupCamera()
-                } catch {
-                    debugLog("Failed to setup camera after navigation error: \(error)")
-                }
+                await view?.setupCamera()
                 await view?.showError(error.localizedDescription)
             }
             return
@@ -1117,10 +1114,12 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
 
 private extension DocumentCapturePresenter {
     func navigateToResultAfterDelay() async {
-        await view?.stopCamera()
         uploadState = .success
+        await updateUI()
 
-        try? await timeProvider.sleep(nanoseconds: 500_000_000)
+        try? await timeProvider.sleep(nanoseconds: Self.successStateHoldNanoseconds)
+
+        await view?.stopCamera()
 
         do {
             try await router?.navigateToResult(validationId: validationId, loadingType: .document)

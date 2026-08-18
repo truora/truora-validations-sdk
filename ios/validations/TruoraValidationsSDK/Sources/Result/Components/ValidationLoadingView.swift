@@ -54,9 +54,16 @@ struct ValidationLoadingView: View {
         GeometryReader { geometry in
             let maxContentWidth: CGFloat = isIPad ? min(600, geometry.size.width * 0.7) : .infinity
             let iconSizeValue = iconSize(for: geometry.size.width)
+            // Invoice loading inverts to a light surface and uses the client's primary on the
+            // progress bar (per design); face/document keep the dark navy capture-screen
+            // treatment with the bar matching the foreground.
+            let isInvoice = loadingType == .invoice
+            let backgroundColor = isInvoice ? Color.white : theme.colors.surfaceVariant
+            let foregroundColor = isInvoice ? theme.colors.onSurface : theme.colors.onSurfaceVariant
+            let progressColor = isInvoice ? theme.colors.primary : foregroundColor
 
             ZStack {
-                theme.colors.surfaceVariant
+                backgroundColor
                     .extendingIntoSafeArea()
 
                 VStack(spacing: 0) {
@@ -65,7 +72,7 @@ struct ValidationLoadingView: View {
                     // Centered icon
                     AnimatedGIFView(
                         gifName: loadingType.gifName,
-                        tintColor: theme.colors.onSurfaceVariant.uiColor,
+                        tintColor: foregroundColor.uiColor,
                         size: iconSizeValue
                     )
                     .frame(width: iconSizeValue.width, height: iconSizeValue.height)
@@ -85,7 +92,7 @@ struct ValidationLoadingView: View {
                         )
                         .font(theme.typography.titleLarge)
                         .fontWeight(.bold)
-                        .foregroundColor(theme.colors.onSurfaceVariant)
+                        .foregroundColor(foregroundColor)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -95,12 +102,16 @@ struct ValidationLoadingView: View {
                             )
                         )
                         .font(theme.typography.bodyLarge)
-                        .foregroundColor(theme.colors.onSurfaceVariant)
+                        .foregroundColor(foregroundColor)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                        AnimatedLoadingBar(height: loadingBarHeight)
-                            .padding(.top, isIPad ? 16 : 8)
+                        AnimatedLoadingBar(
+                            backgroundColor: progressColor.opacity(0.2),
+                            progressColor: progressColor,
+                            height: loadingBarHeight
+                        )
+                        .padding(.top, isIPad ? 16 : 8)
                     }
                     .frame(maxWidth: maxContentWidth)
                     .padding(.horizontal, horizontalPadding)
@@ -114,7 +125,7 @@ struct ValidationLoadingView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: footerLogoSize.width, height: footerLogoSize.height)
-                            .foregroundColor(theme.colors.onSurfaceVariant)
+                            .foregroundColor(foregroundColor)
                     }
                     .frame(maxWidth: maxContentWidth)
                     .padding(.horizontal, footerHorizontalPadding)

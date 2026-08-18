@@ -22,7 +22,7 @@ struct PassiveIntroContentView: View {
                 // Illustration with bottom fade
                 TruoraValidationsSDKAsset.passiveIntro.swiftUIImage
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
                     .frame(maxHeight: maxImageHeight, alignment: .top)
                     .frame(maxWidth: isPhone ? .infinity : 1024)
                     .clipped()

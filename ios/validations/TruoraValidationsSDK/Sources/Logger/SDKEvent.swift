@@ -94,9 +94,15 @@ public extension SDKEvent {
             "level": level.rawValue,
             "success": success
         ]
-        if let errorMessage { dict["error_message"] = errorMessage }
-        if let durationMs { dict["duration_ms"] = durationMs }
-        if let stackTrace { dict["stack_trace"] = stackTrace }
+        if let errorMessage {
+            dict["error_message"] = errorMessage
+        }
+        if let durationMs {
+            dict["duration_ms"] = durationMs
+        }
+        if let stackTrace {
+            dict["stack_trace"] = stackTrace
+        }
         dict["metadata"] = metadata.mapValues { $0.rawValue }
         return dict
     }

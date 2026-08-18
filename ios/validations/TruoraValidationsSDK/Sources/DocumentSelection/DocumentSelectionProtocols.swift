@@ -7,6 +7,24 @@
 
 import Foundation
 
+// MARK: - Document Image State
+
+/// Tracks the fetch-then-download lifecycle of a remote document example image.
+enum DocumentImageState: Equatable {
+    case loading
+    case loaded(URL)
+    case unavailable
+
+    /// Stable key for SwiftUI's `.id()` to force view recreation on state change.
+    var id: String {
+        switch self {
+        case .loading: "loading"
+        case .loaded(let url): "loaded-\(url.absoluteString)"
+        case .unavailable: "unavailable"
+        }
+    }
+}
+
 // MARK: - Presenter to View
 
 /// Protocol for updating the document selection view.
@@ -19,6 +37,8 @@ import Foundation
     func setErrors(isCountryError: Bool, isDocumentError: Bool)
     func setLoading(_ isLoading: Bool)
     func displayCameraPermissionAlert()
+    func setSelectionFixed(_ isFixed: Bool)
+    func setDocumentImageState(_ state: DocumentImageState)
 }
 
 // MARK: - View to Presenter
@@ -38,6 +58,8 @@ protocol DocumentSelectionPresenterToInteractor: AnyObject {
     func logViewRendered() async
     func logContinueButtonClicked(selectedCountry: NativeCountry?, selectedDocument: NativeDocumentType?) async
     func logCancelButtonClicked() async
+    func createValidation(accountId: String) async throws -> NativeValidationCreateResponse
+    func fetchDocumentExample(country: String, documentType: String) async -> URL?
 }
 
 // MARK: - Interactor to Presenter

@@ -456,6 +456,54 @@ struct NativeImageEvaluationFeedback: Codable {
     let hints: [String]?
 }
 
+// MARK: - Document Selection Models
+
+struct NativeDocumentSelectionResponse: Codable {
+    let countries: [NativeCountryResponse]
+}
+
+struct NativeCountryResponse: Codable {
+    let country: String
+    let displayName: String
+    let flag: NativeFlagResponse
+    let documentTypes: [NativeDocTypeResponse]
+
+    enum CodingKeys: String, CodingKey {
+        case country
+        case displayName = "display_name"
+        case flag
+        case documentTypes = "document_types"
+    }
+}
+
+struct NativeFlagResponse: Codable {
+    let url: String
+}
+
+struct NativeDocTypeResponse: Codable {
+    let documentType: String
+    let displayName: String
+    let examples: [NativeExampleResponse]
+
+    enum CodingKeys: String, CodingKey {
+        case documentType = "document_type"
+        case displayName = "display_name"
+        case examples
+    }
+}
+
+struct NativeExampleResponse: Codable {
+    let assetId: String
+    let url: String
+    let caption: String
+
+    enum CodingKeys: String, CodingKey {
+        case assetId = "asset_id"
+        case url
+        case caption
+    }
+}
+
 // MARK: - Enums
 
 enum NativeValidationTypeEnum: String {

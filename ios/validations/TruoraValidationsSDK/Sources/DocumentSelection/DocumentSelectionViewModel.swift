@@ -32,6 +32,12 @@ import Foundation
     /// Tracks if document type dropdown is expanded
     @Published var isDocumentDropdownExpanded: Bool = false
 
+    /// True when both country and document are pre-configured
+    @Published var isSelectionFixed: Bool = false
+
+    /// State of the remote document example image for the unified screen
+    @Published var documentImageState: DocumentImageState = .loading
+
     var presenter: DocumentSelectionViewToPresenter?
     private var didLoadOnce: Bool = false
 
@@ -89,5 +95,13 @@ extension DocumentSelectionViewModel: DocumentSelectionPresenterToView {
 
     func displayCameraPermissionAlert() {
         showCameraPermissionAlert = true
+    }
+
+    func setSelectionFixed(_ isFixed: Bool) {
+        self.isSelectionFixed = isFixed
+    }
+
+    func setDocumentImageState(_ state: DocumentImageState) {
+        self.documentImageState = state
     }
 }

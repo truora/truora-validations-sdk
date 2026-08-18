@@ -18,6 +18,10 @@ class InvoiceInstructionsPresenter {
     /// Validation ID received from the backend.
     private var validationId: String?
 
+    /// The validation id being retried (consumed from the router on a retry). Used to
+    /// label the terminal result when a retry is rejected because retries are exhausted.
+    private var lastRetryOfId: String?
+
     init(
         view: InvoiceInstructionsPresenterToView,
         interactor: InvoiceInstructionsPresenterToInteractor?,
@@ -71,6 +75,7 @@ extension InvoiceInstructionsPresenter: InvoiceInstructionsViewToPresenter {
             router?.pendingInvoiceRetryValidationId = nil
             return id
         }
+        lastRetryOfId = retryOfId
         await view?.showLoading()
         interactor.createValidation(accountId: accountId, retryOfId: retryOfId)
     }
@@ -181,7 +186,29 @@ extension InvoiceInstructionsPresenter: InvoiceInstructionsInteractorToPresenter
 
     func validationFailed(_ error: TruoraException) async {
         await view?.hideLoading()
+
+        if Self.isRetriesExhausted(error) {
+            let priorId = lastRetryOfId ?? validationId ?? ""
+            debugLog(
+                "🟡 InvoiceInstructions: retries exhausted, finishing as failure "
+                    + "(validationId=\(priorId)): \(error)"
+            )
+            let result = ValidationResult(validationId: priorId, status: .failure)
+            await router?.finishWithCompletedResult(result)
+            return
+        }
+
         await router?.handleError(error)
+    }
+
+    // Backend returns code 10400 for all invalid-request errors, so match on the message.
+    private static let retriesNoLongerAvailableMessage = "retries for validation are no longer available"
+    private static let noRemainingRetriesMessage = "no remaining retries"
+
+    private static func isRetriesExhausted(_ error: TruoraException) -> Bool {
+        let message = (error.errorDescription ?? "").lowercased()
+        return message.contains(retriesNoLongerAvailableMessage)
+            || message.contains(noRemainingRetriesMessage)
     }
 
     func fileUploadCompleted() async {

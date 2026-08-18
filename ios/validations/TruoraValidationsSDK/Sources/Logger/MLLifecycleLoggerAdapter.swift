@@ -89,4 +89,16 @@ final class MLLifecycleLoggerAdapter: MLLifecycleLogger {
             )
         }
     }
+
+    func logFaceDetectionInferenceFailed(errorMessage: String) {
+        Task {
+            await logger.logML(
+                eventName: "face_detection_inference_failed",
+                level: .error,
+                errorMessage: errorMessage,
+                retention: .oneWeek,
+                metadata: ["name": "face_detector"]
+            )
+        }
+    }
 }

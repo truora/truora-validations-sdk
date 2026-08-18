@@ -13,6 +13,8 @@
 "passive_capture_feedback_center_face" = "Centralize seu rosto no oval";
 "passive_capture_feedback_look_forward" = "Olhe para a câmera";
 "passive_capture_feedback_recording" = "Não se mova!\nGravando";
+"passive_capture_feedback_move_closer" = "Aproxime-se";
+"passive_capture_feedback_move_back" = "Afaste-se";
 "passive_capture_record_video" = "gravar vídeo";
 "passive_capture_cannot_record" = "Não conseguimos gravar.\nPressione \"%@\".";
 "passive_capture_tips_title" = "Dicas para uma melhor captura";
@@ -37,6 +39,8 @@
 
 /* Loading */
 "passive_capture_loading_title" = "Verificando rosto...";
+"passive_capture_uploading_title" = "Carregando…";
+"passive_capture_ready_title" = "Pronto!";
 "document_autocapture_loading_verifying" = "Verificando";
 "document_autocapture_loading_verifying_description" = "Estamos revisando a informação\nIsso pode levar alguns segundos";
 
@@ -54,7 +58,7 @@
 
 /* Document Selection */
 "document_selection_title" = "Escolha o seu tipo de documento";
-"document_selection_locked_title" = "Prepare este documento";
+"document_selection_locked_title" = "Prepare seu documento";
 "document_selection_country_label" = "País do seu documento:";
 "document_selection_country_placeholder" = "Selecione um país";
 "document_selection_country_error" = "Por favor selecione um país";
@@ -64,12 +68,17 @@
 "document_selection_accepted_documents" = "Documentos aceitos:";
 "document_selection_continue" = "Continuar";
 "document_selection_loading" = "Carregando...";
+"document_fixed_subtitle" = "Antes de escanear:";
+"document_first_suggestion" = "Tenha seu documento físico em mãos";
+"document_second_suggestion" = "Limpe a câmera do seu dispositivo";
+"document_selection_locked_title_co_national_id" = "Prepare sua cédula";
 
 /* Document Intro */
 "document_intro_title" = "Prepare-se para escanear seu documento de identidade";
 "document_intro_subtitle" = "Não se mova, o documento será escaneado automaticamente.";
 "document_intro_security_tip" = "Sua informação está protegida.";
 "document_intro_start_capture" = "Escanear documento";
+"document_intro_start_capture_co_national_id" = "Escanear cédula";
 "document_intro_creating_validation" = "Criando validação...";
 
 /* Document Capture */
@@ -77,14 +86,13 @@
 "document_capture_back_side" = "Lado traseiro";
 "document_capture_front_label" = "Frente";
 "document_capture_back_label" = "Verso";
-"document_capture_front_instruction" = "Centre seu documento na tela";
-"document_capture_back_instruction" = "Agora a parte de trás do seu documento";
+"document_capture_front_instruction" = "Posicione a frente do documento na moldura";
+"document_capture_back_instruction" = "Posicione o verso do documento na moldura";
 "document_capture_rotate_instruction" = "Volte o documento para escanear o verso";
-"document_capture_scanning" = "Escaneando...";
+"document_capture_scanning" = "Não se mexa!\nEscaneando...";
 "document_capture_scanning_manual" = "Posicione seu documento";
 "document_capture_hold" = "Mantenha firme";
 "document_capture_capturing" = "Capturando...";
-"document_capture_processing" = "Processando...";
 "document_capture_success" = "Documento capturado";
 "document_capture_error" = "Erro na captura";
 "document_capture_take_photo" = "Tirar foto";
@@ -98,7 +106,7 @@
 "document_capture_feedback_locate" = "Localize o documento";
 "document_capture_feedback_closer" = "Mais perto";
 "document_capture_feedback_further" = "Mais longe";
-"document_capture_feedback_rotate" = "Gire o documento";
+"document_capture_feedback_rotate" = "Vire o documento";
 "document_capture_feedback_center" = "Centre o documento";
 "document_capture_feedback_multiple" = "Mantenha apenas um documento no quadro";
 
@@ -230,9 +238,23 @@
 "invoice_feedback_tip_glare_mx" = "Evite reflexos ou brilho sobre o comprovante.";
 "invoice_feedback_tip_glare_co" = "Evite reflexos ou brilho sobre a fatura.";
 "invoice_feedback_tip_angle" = "Tire a foto de frente, sem ângulo.";
+"invoice_feedback_blurry_title" = "Imagem borrada, não conseguimos ler os detalhes";
+"invoice_feedback_blurry_desc" = "Certifique-se de que o texto e os números sejam fáceis de ler.";
+"invoice_feedback_glare_title" = "Há reflexos que não nos deixam ver os detalhes";
+"invoice_feedback_glare_desc" = "Certifique-se de que a luz não ilumine diretamente o documento.";
+"invoice_feedback_default_title" = "Não conseguimos processar sua imagem";
+"invoice_feedback_default_desc" = "Certifique-se de que esteja bem iluminado, em foco e que todas as informações estejam claras.";
 
 /* Cancel Alert */
 "cancel_alert_title" = "Cancelar validação";
 "cancel_alert_message" = "Você está prestes a cancelar sua validação atual";
 "cancel_alert_confirm" = "Sim, cancelar";
 "cancel_alert_cancel" = "Não, voltar";
+
+/* Authorization (enter_authorization step) */
+"authorization_title" = "Autorização de dados biométricos";
+"authorization_accept" = "Aceitar";
+"authorization_data_policy_text" = "Consulte a Política de tratamento de dados pessoais.";
+"authorization_data_policy_link" = "Política de tratamento de dados pessoais";
+"authorization_required_fields_error" = "Para continuar, aceite os campos obrigatórios";
+"authorization_security_tip" = "Suas informações estão protegidas e serão usadas apenas para verificar sua identidade.";

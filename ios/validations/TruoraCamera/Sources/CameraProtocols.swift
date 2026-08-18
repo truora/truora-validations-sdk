@@ -55,6 +55,8 @@ public protocol MLLifecycleLogger: AnyObject {
     func logModelInitFailed(modelName: String, errorMessage: String)
     func logModelPredictionFinished(modelName: String)
     func logModelPredictionFailed(modelName: String, errorMessage: String)
+    /// Logs the first inference failure for the face detector during a session.
+    func logFaceDetectionInferenceFailed(errorMessage: String)
 }
 
 /// Unified detection result structure for all detection types

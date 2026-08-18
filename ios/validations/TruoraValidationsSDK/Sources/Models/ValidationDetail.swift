@@ -223,7 +223,9 @@ public enum JSONValue: Codable, Equatable {
 
     /// Returns the string value when this is `.string(s)`, otherwise `nil`.
     public var stringValue: String? {
-        if case .string(let value) = self { return value }
+        if case .string(let value) = self {
+            return value
+        }
         return nil
     }
 }

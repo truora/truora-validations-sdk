@@ -5,7 +5,17 @@
 //  Created by Truora on 16/04/26.
 //
 
+import CoreGraphics
 import Foundation
+
+// MARK: - Provider Logo
+
+/// A provider logo asset paired with the slot height it should occupy. Heights aren't uniform
+/// because asset intrinsic ratios differ — see `InvoiceCountryContent.providerLogos`.
+struct ProviderLogo {
+    let name: String
+    let height: CGFloat
+}
 
 // MARK: - Invoice Country Content
 
@@ -65,18 +75,33 @@ enum InvoiceCountryContent {
         LocalizationKeys.invoiceInstructionsSubtitleCo
     }
 
-    var providerLogoNames: [String] {
+    /// Provider logos with per-asset slot heights. Heights aren't uniform because asset
+    /// intrinsic ratios differ — e.g. Totalplay's descenders need extra vertical room so its
+    /// caps line up with the other MX logos.
+    var providerLogos: [ProviderLogo] {
         switch self {
-        case .mx: ["mx_invoice_cfe_logo", "mx_invoice_telmex_logo", "mx_invoice_totalplay_logo"]
-        case .co: ["co_invoice_alcanos_logo", "co_invoice_gases_oriente_logo", "co_invoice_metrogas_logo"]
+        case .mx: [
+                ProviderLogo(name: "mx_invoice_cfe_logo", height: 36),
+                ProviderLogo(name: "mx_invoice_telmex_logo", height: 36),
+                // Totalplay is larger so its caps align with the other two while its
+                // `p` and `y` descenders drop below their baseline.
+                ProviderLogo(name: "mx_invoice_totalplay_logo", height: 40)
+            ]
+        case .co: [
+                ProviderLogo(name: "co_invoice_alcanos_logo", height: 36),
+                ProviderLogo(name: "co_invoice_gases_oriente_logo", height: 36),
+                ProviderLogo(name: "co_invoice_metrogas_logo", height: 36)
+            ]
         }
     }
 
-    /// Logo spacing in points. MX providers are wider, CO logos need tighter spacing.
+    /// Horizontal gap in points between the logo slots. MX providers are wider so they need
+    /// slightly more breathing room than CO. Each logo sits in a `maxWidth: .infinity` slot,
+    /// so this value only controls the visible gap between adjacent slots.
     var logoSpacing: CGFloat {
         switch self {
-        case .mx: 40
-        case .co: 32
+        case .mx: 24
+        case .co: 20
         }
     }
 

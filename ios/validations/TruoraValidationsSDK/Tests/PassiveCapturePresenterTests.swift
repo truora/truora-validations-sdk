@@ -198,7 +198,7 @@ import XCTest
         // Then - should start recording again
         XCTAssertTrue(mockView.startRecordingCalled, "Should restart recording after resume in manual mode")
         XCTAssertEqual(mockView.lastState as? PassiveCaptureState, .recording)
-        XCTAssertEqual(mockView.lastFeedback, .recording)
+        XCTAssertEqual(mockView.lastIsActivelyRecording, true)
     }
 
     func testHelpWhileRecording_autocapture_stopsAndRestartsAtDetection() async {
@@ -483,17 +483,10 @@ import XCTest
         // Wait for countdown (3 seconds) + small buffer
         mockTimeProvider.fireTimer(times: 4) // Fire countdown timer 4 times (3, 2, 1, 0)
 
-        // Simulate passage of time beyond manual timeout (4 seconds)
-        // Since we're using a lock-based timer with Date(), we can't easily advance system time.
-        // However, we can inject a mock Date provider if we refactor TimeProvider further.
-        // For now, let's skip the actual time check or make TimeProvider handle current time too.
-        // Or we can rely on the fact that the test execution itself takes some time,
-        // but that's what we want to avoid.
-
-        // Wait, the presenter uses Date().timeIntervalSince(startTime).
-        // To test this deterministically, we need to abstract Date() too.
-        // We simulate time passage by advancing the mock time.
-        mockTimeProvider.currentTime += 4.5
+        // Simulate passage of time beyond manual timeout (10 seconds).
+        // The presenter uses timeProvider.now (a mock Date), so we can advance it
+        // deterministically to trigger the timeout branch.
+        mockTimeProvider.currentTime += 10.5
 
         // When - Process frames after timeout
         // Note: In a real environment, time would have passed.
@@ -520,8 +513,8 @@ import XCTest
         // Wait for countdown (3 seconds) + small buffer
         mockTimeProvider.fireTimer(times: 4)
 
-        // When - Process frame BEFORE 4 second timeout
-        // Simulate time passage (3.2s) which is < 4.0s
+        // When - Process frame BEFORE 10 second timeout
+        // Simulate time passage (3.2s) which is < 10.0s
         mockTimeProvider.currentTime += 3.2
         await sut.detectionsReceived(singleFace)
 
@@ -595,7 +588,7 @@ import XCTest
             "Should pass correct video data to interactor"
         )
         XCTAssertEqual(mockView.lastUploadState, .uploading, "Should set upload state to UPLOADING")
-        XCTAssertTrue(mockView.pauseCameraCalled, "Should pause camera during upload to save resources")
+        XCTAssertFalse(mockView.pauseCameraCalled, "Should NOT pause camera; preview stays live during upload")
     }
 
     func testVideoRecordingCompleted_withLargeVideo_uploadsSuccessfully() async {
@@ -614,7 +607,7 @@ import XCTest
         )
     }
 
-    func testVideoRecordingCompleted_pausesCameraDuringUpload() async {
+    func testVideoRecordingCompleted_keepsCameraLiveDuringUpload() async {
         // Given
         let expectedVideoData = Data([0x00, 0x01, 0x02, 0x03, 0x04])
 
@@ -622,8 +615,8 @@ import XCTest
         await sut.videoRecordingCompleted(videoData: expectedVideoData)
 
         // Then
-        XCTAssertTrue(mockView.pauseCameraCalled, "Should pause camera during upload")
-        XCTAssertFalse(mockView.stopCameraCalled, "Should NOT stop camera, only pause it")
+        XCTAssertFalse(mockView.pauseCameraCalled, "Should NOT pause camera; preview stays live during upload")
+        XCTAssertFalse(mockView.stopCameraCalled, "Should NOT stop camera during upload")
         XCTAssertEqual(mockView.lastUploadState, .uploading, "Should set upload state to UPLOADING")
     }
 
@@ -781,6 +774,41 @@ import XCTest
             "upload-success-id",
             "Should pass correct validation id"
         )
+    }
+
+    func testVideoUploadCompleted_waitsOneSecondBeforeNavigating() async throws {
+        // Given
+        let validationId = "upload-success-id"
+        mockTimeProvider.sleepCalledExpectation = expectation(description: "Sleep called")
+
+        // When
+        let task = Task { await sut.videoUploadCompleted(validationId: validationId) }
+        try await fulfillment(of: [XCTUnwrap(mockTimeProvider.sleepCalledExpectation)], timeout: 1.0)
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
+
+        // Then
+        XCTAssertTrue(
+            mockTimeProvider.sleepCalls.contains(PassiveCapturePresenter.successStateHoldNanoseconds),
+            "Should hold the success state for 1000 ms (web parity) before navigating"
+        )
+    }
+
+    func testVideoUploadCompleted_keepsCameraLiveDuringSuccessHold() async throws {
+        // Given
+        mockTimeProvider.sleepCalledExpectation = expectation(description: "Sleep called")
+
+        // When
+        let task = Task { await sut.videoUploadCompleted(validationId: "upload-success-id") }
+        try await fulfillment(of: [XCTUnwrap(mockTimeProvider.sleepCalledExpectation)], timeout: 1.0)
+
+        // Then: while the "¡Listo!" state is held, the camera must still be live
+        XCTAssertFalse(mockView.stopCameraCalled, "Camera should stay live during the ¡Listo! hold")
+
+        // After the hold, the camera stops before navigating
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
+        XCTAssertTrue(mockView.stopCameraCalled, "Camera should stop after the hold, before navigating")
     }
 
     func testVideoUploadCompleted_withFailedValidation_stillNavigates() async throws {
@@ -976,7 +1004,7 @@ import XCTest
         )
     }
 
-    func testDetectionsReceived_withFaceTooSmall_showsCenterFeedback() async {
+    func testDetectionsReceived_withFaceTooSmall_showsMoveCloser() async {
         // Given
         sut.currentState = .recording
         // Face centered but only 10% height (below minFaceHeight)
@@ -990,12 +1018,12 @@ import XCTest
         // Then
         XCTAssertEqual(
             mockView.lastFeedback,
-            .centerFace,
-            "Should show CENTER_FACE for too-small face"
+            .moveCloser,
+            "Should show MOVE_CLOSER for too-small (too-far) face"
         )
     }
 
-    func testDetectionsReceived_withFaceTooLarge_showsCenterFeedback() async {
+    func testDetectionsReceived_withFaceTooLarge_showsMoveBack() async {
         // Given
         sut.currentState = .recording
         // Face covering 90% of height (above maxFaceHeight)
@@ -1009,8 +1037,8 @@ import XCTest
         // Then
         XCTAssertEqual(
             mockView.lastFeedback,
-            .centerFace,
-            "Should show CENTER_FACE for too-large face"
+            .moveBack,
+            "Should show MOVE_BACK for too-large (too-close) face"
         )
     }
 
@@ -1174,6 +1202,371 @@ import XCTest
                 "so a single frame after >1s of elapsed time cannot trigger recording"
         )
     }
+
+    // MARK: - Unified Telemetry Event Tests
+
+    func testFaceQualityGatePassed_emittedWhenAutocaptureGateFires() async {
+        // Given — countdown completes (sets countdownEndedAt), then a face is held for 1s
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+
+        let singleFace = [createFaceDetectionResult(confidence: 0.95)]
+
+        // Start the detection timer
+        await sut.detectionsReceived(singleFace)
+
+        // Advance past the 1s detection threshold and trigger the gate
+        mockTimeProvider.currentTime = mockTimeProvider.currentTime.addingTimeInterval(1.1)
+        await sut.detectionsReceived(singleFace)
+
+        // Then
+        XCTAssertTrue(
+            mockInteractor.logFaceQualityGatePassedCalled,
+            "FaceQualityGatePassed should be emitted when autocapture gate fires"
+        )
+        XCTAssertNotNil(
+            mockInteractor.lastTimeToReadyMs,
+            "TimeToReadyMs should be populated"
+        )
+    }
+
+    func testFaceQualityGatePassed_timeToReadyMs_isNonNegative() async {
+        // Given
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+
+        let singleFace = [createFaceDetectionResult(confidence: 0.95)]
+        await sut.detectionsReceived(singleFace)
+
+        // Advance past the 1s detection threshold and trigger the gate
+        mockTimeProvider.currentTime = mockTimeProvider.currentTime.addingTimeInterval(1.5)
+        await sut.detectionsReceived(singleFace)
+
+        // Then — value must be non-negative
+        XCTAssertGreaterThanOrEqual(
+            mockInteractor.lastTimeToReadyMs ?? -1,
+            0,
+            "TimeToReadyMs must be >= 0"
+        )
+    }
+
+    /// Helper: drains all pending countdown sleeps so the presenter enters face-waiting state.
+    /// The countdown in `startCountdown()` uses `timeProvider.sleep` (one per tick: 3→2→1→0).
+    /// We resume each sleep one at a time and poll until a new sleep is registered before
+    /// resuming the next, ensuring deterministic drain order.
+    private func runCountdownToCompletion() async {
+        // The countdown task suspends on `sleep` before each tick. Resume 3 ticks:
+        for _ in 0 ..< 3 {
+            // Wait for the countdown task to register its next sleep continuation.
+            var waited = 0
+            while mockTimeProvider.sleepContinuations.isEmpty, waited < 100 {
+                try? await Task.sleep(nanoseconds: 1_000_000) // 1ms
+                waited += 1
+            }
+            mockTimeProvider.resumeSleep(at: 0)
+        }
+        // Wait for `beginWaitingForFace()` to run (which calls `startProcessingTimer()`).
+        // It runs immediately after the while loop exits in the countdown Task — give it time.
+        try? await Task.sleep(nanoseconds: 5_000_000) // 5ms
+    }
+
+    func testFaceQualityGateTimeout_emittedWhenTimeoutExpires() async {
+        // Given — camera ready; let countdown complete to enter face-waiting state
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+
+        // Advance past the 10s manual timeout
+        mockTimeProvider.currentTime += 10.5
+
+        // Trigger timeout check via detectionsReceived
+        let singleFace = [createFaceDetectionResult(confidence: 0.95)]
+        await sut.detectionsReceived(singleFace)
+
+        // Then
+        XCTAssertTrue(
+            mockInteractor.logFaceQualityGateTimeoutCalled,
+            "FaceQualityGateTimeout should be emitted when timeout elapses"
+        )
+        XCTAssertNotNil(
+            mockInteractor.lastGateTimeoutHint,
+            "LastHint should be set"
+        )
+    }
+
+    func testFaceQualityGateTimeout_lastHint_defaultsToShowFace_whenNoHintShown() async {
+        // Given — countdown ends, no feedback hint shown before timeout
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+
+        // Advance past timeout without any off-center/profile detections
+        mockTimeProvider.currentTime += 10.5
+
+        let singleFace = [createFaceDetectionResult(confidence: 0.95)]
+        await sut.detectionsReceived(singleFace)
+
+        // Then — default hint should be SHOW_FACE
+        XCTAssertEqual(
+            mockInteractor.lastGateTimeoutHint,
+            "SHOW_FACE",
+            "LastHint should default to SHOW_FACE when no hint was shown"
+        )
+    }
+
+    func testFaceQualityGateTimeout_lastHint_reflectsLastShownHint() async {
+        // Given — camera ready then face goes sideways (LOOK_FORWARD hint shown)
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+
+        // Show LOOK_FORWARD hint before timeout
+        let sidewaysFace = [createFaceDetectionResult(yaw: .pi / 3)]
+        await sut.detectionsReceived(sidewaysFace)
+        XCTAssertEqual(mockView.lastFeedback, .lookForward, "Precondition: LOOK_FORWARD hint shown")
+
+        // Advance past timeout
+        mockTimeProvider.currentTime += 10.5
+        await sut.detectionsReceived(sidewaysFace)
+
+        // Then — timeout should report LOOK_FORWARD as the last hint
+        XCTAssertEqual(
+            mockInteractor.lastGateTimeoutHint,
+            "LOOK_FORWARD",
+            "LastHint should reflect the last shown hint"
+        )
+    }
+
+    func testFaceVideoManualModeForced_emittedWithQualityGateTimeoutReason_onTimeout() async {
+        // Given — countdown completes, then face-wait times out
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+        mockTimeProvider.currentTime += 10.5
+
+        let singleFace = [createFaceDetectionResult(confidence: 0.95)]
+        await sut.detectionsReceived(singleFace)
+
+        // Then
+        XCTAssertTrue(
+            mockInteractor.logFaceVideoManualModeForcedCalled,
+            "FaceVideoManualModeForced should be emitted on timeout"
+        )
+        XCTAssertEqual(
+            mockInteractor.lastManualModeTriggerReason,
+            .qualityGateTimeout,
+            "TriggerReason should be quality_gate_timeout on timeout"
+        )
+    }
+
+    func testFaceVideoManualModeForced_emittedWithClientWithoutAutocaptureReason_whenAutocaptureDisabled() async {
+        // Given — presenter with autocapture disabled
+        let presenter = PassiveCapturePresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            validationId: "test-validation-id",
+            useAutocapture: false,
+            timeProvider: mockTimeProvider
+        )
+
+        // When — camera becomes ready
+        await presenter.cameraReady()
+
+        // Then
+        XCTAssertTrue(
+            mockInteractor.logFaceVideoManualModeForcedCalled,
+            "FaceVideoManualModeForced should be emitted when SDK starts in manual mode"
+        )
+        XCTAssertEqual(
+            mockInteractor.lastManualModeTriggerReason,
+            .clientWithoutAutocapture,
+            "TriggerReason should be client_without_autocapture when autocapture is disabled"
+        )
+    }
+
+    func testManualTimeoutSeconds_is10() {
+        XCTAssertEqual(
+            PassiveCapturePresenter.manualTimeoutSeconds,
+            10.0,
+            "Manual fallback timeout must be 10s per cross-platform contract"
+        )
+    }
+
+    // MARK: - Session Summary Tests
+
+    func testViewWillDisappear_emitsSessionSummaryWithDominantHint() async {
+        // Given — camera ready, then a LOOK_FORWARD hint is shown for 2s, then teardown.
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+
+        let sidewaysFace = [createFaceDetectionResult(yaw: .pi / 3)]
+        await sut.detectionsReceived(sidewaysFace)
+        XCTAssertEqual(mockView.lastFeedback, .lookForward, "Precondition: LOOK_FORWARD shown")
+
+        // Advance 2 seconds so LOOK_FORWARD accumulates meaningful time.
+        mockTimeProvider.currentTime = mockTimeProvider.currentTime.addingTimeInterval(2.0)
+
+        // When
+        await sut.viewWillDisappear()
+
+        // Then
+        XCTAssertTrue(
+            mockInteractor.logFaceQualitySessionSummaryCalled,
+            "Session summary should be emitted on viewWillDisappear"
+        )
+        XCTAssertEqual(
+            mockInteractor.lastSessionSummaryDominantHint,
+            "LOOK_FORWARD",
+            "Dominant hint should be LOOK_FORWARD after 2s with sideways face"
+        )
+        XCTAssertEqual(
+            mockInteractor.lastSessionSummaryAutocaptureFired,
+            false,
+            "autocapture_fired should be false when recording was never triggered by the gate"
+        )
+        XCTAssertGreaterThan(
+            mockInteractor.lastSessionSummaryTotalDurationMs ?? 0,
+            0,
+            "Total duration must be positive"
+        )
+    }
+
+    func testViewWillDisappear_autocaptureGateFired_setsAutocaptureFiredTrue() async {
+        // Given — full autocapture flow: countdown → face detected for 1s → gate fires
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+
+        let singleFace = [createFaceDetectionResult(confidence: 0.95)]
+        await sut.detectionsReceived(singleFace)
+        mockTimeProvider.currentTime = mockTimeProvider.currentTime.addingTimeInterval(1.1)
+        await sut.detectionsReceived(singleFace)
+        XCTAssertTrue(mockInteractor.logFaceQualityGatePassedCalled, "Precondition: gate fired")
+
+        // When
+        await sut.viewWillDisappear()
+
+        // Then
+        XCTAssertTrue(
+            mockInteractor.logFaceQualitySessionSummaryCalled,
+            "Session summary should be emitted"
+        )
+        XCTAssertEqual(
+            mockInteractor.lastSessionSummaryAutocaptureFired,
+            true,
+            "autocapture_fired must be true when the autocapture gate triggered recording"
+        )
+    }
+
+    // MARK: - Hidden Face Tests
+
+    func testIsFaceHidden_nilLandmarks_returnsFalse() {
+        // nil landmarks means Vision didn't compute them; avoid false positives.
+        let face = createFaceDetectionResult(landmarks: nil)
+        XCTAssertFalse(sut.isFaceHidden(face), "nil landmarks must not be treated as hidden")
+    }
+
+    func testDetectionsReceived_nilLandmarks_doesNotEmitHiddenFace() async {
+        // Given — nil landmarks (VNDetectFaceLandmarksRequest did not populate them)
+        sut.currentState = .recording
+        let face = [createFaceDetectionResult(landmarks: nil)]
+
+        // Send 5 frames — hysteresis threshold is 3, must not fire
+        for _ in 0 ..< 5 {
+            await sut.detectionsReceived(face)
+        }
+
+        // Then — no HIDDEN_FACE should have been emitted
+        XCTAssertNotEqual(mockView.lastFeedback, .hiddenFace, "nil landmarks must not emit HIDDEN_FACE")
+    }
+
+    func testDetectionsReceived_hiddenFaceHysteresis_emitsAfterThreeFrames() async {
+        // Given — a face result whose landmarks mark the face as hidden.
+        // We use a stub that carries a non-nil VNFaceLandmarks2D with all regions nil;
+        // constructing a real VNFaceLandmarks2D is not possible in unit tests, so we
+        // test the presenter via the isFaceHidden override path through a subclass.
+        // Directly test via HiddenFaceStubPresenter (see bottom of file).
+        sut.currentState = .recording
+        let stubPresenter = HiddenFaceStubPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            validationId: "test",
+            timeProvider: mockTimeProvider
+        )
+        stubPresenter.currentState = .recording
+        stubPresenter.forceHiddenFace = true
+
+        // When — send fewer than 3 frames: no feedback yet
+        let face = [createFaceDetectionResult(landmarks: nil)]
+        for _ in 0 ..< 2 {
+            await stubPresenter.detectionsReceived(face)
+        }
+        XCTAssertNotEqual(mockView.lastFeedback, .hiddenFace, "Should not emit before 3 frames")
+
+        // Send 3rd frame: threshold reached
+        await stubPresenter.detectionsReceived(face)
+
+        // Then
+        XCTAssertEqual(mockView.lastFeedback, .hiddenFace, "Should emit HIDDEN_FACE after 3 consecutive hidden frames")
+    }
+
+    func testDetectionsReceived_hiddenFaceCounterResetsOnVisibleFace() async {
+        // Given
+        sut.currentState = .recording
+        let stubPresenter = HiddenFaceStubPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            validationId: "test",
+            timeProvider: mockTimeProvider
+        )
+        stubPresenter.currentState = .recording
+        stubPresenter.forceHiddenFace = true
+
+        let face = [createFaceDetectionResult(landmarks: nil)]
+
+        // Send 2 hidden frames (not yet at threshold)
+        for _ in 0 ..< 2 {
+            await stubPresenter.detectionsReceived(face)
+        }
+
+        // When — a visible frame resets the counter
+        stubPresenter.forceHiddenFace = false
+        await stubPresenter.detectionsReceived(face)
+
+        // When — go hidden again: need another 3 frames for threshold
+        stubPresenter.forceHiddenFace = true
+        for _ in 0 ..< 2 {
+            await stubPresenter.detectionsReceived(face)
+        }
+        XCTAssertNotEqual(mockView.lastFeedback, .hiddenFace, "Counter must have reset; 2 frames should not fire")
+
+        await stubPresenter.detectionsReceived(face)
+        XCTAssertEqual(mockView.lastFeedback, .hiddenFace, "Should emit HIDDEN_FACE after a fresh 3-frame run")
+    }
+
+    func testDetectionsReceived_hiddenFaceDoesNotStartRecordingTimer() async {
+        // Given
+        sut.currentState = .recording
+        let stubPresenter = HiddenFaceStubPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            validationId: "test",
+            timeProvider: mockTimeProvider
+        )
+        stubPresenter.currentState = .recording
+        stubPresenter.forceHiddenFace = true
+
+        let face = [createFaceDetectionResult(landmarks: nil)]
+
+        // Send many hidden frames past threshold
+        for _ in 0 ..< 5 {
+            await stubPresenter.detectionsReceived(face)
+        }
+        mockTimeProvider.currentTime = mockTimeProvider.currentTime.addingTimeInterval(1.1)
+        await stubPresenter.detectionsReceived(face)
+
+        // Then — recording must not have started
+        XCTAssertFalse(mockView.startRecordingCalled, "Hidden face must not advance the autocapture timer")
+    }
 }
 
 // swiftlint:enable type_body_length
@@ -1199,6 +1592,7 @@ import XCTest
     var lastShowHelpDialog: Bool?
     var lastFrameData: Data?
     var lastUploadState: UploadState?
+    var lastIsActivelyRecording: Bool?
     private(set) var detectedFaceBoxesUpdates: [[CGRect]] = []
     var lastDetectedFaceBoxes: [CGRect]? {
         detectedFaceBoxesUpdates.last
@@ -1249,7 +1643,8 @@ import XCTest
         showHelpDialog: Bool,
         showSettingsPrompt: Bool,
         lastFrameData: Data?,
-        uploadState: UploadState
+        uploadState: UploadState,
+        isActivelyRecording: Bool
     ) {
         updateUICalled = true
         lastState = state
@@ -1258,6 +1653,7 @@ import XCTest
         lastShowHelpDialog = showHelpDialog
         self.lastFrameData = lastFrameData
         self.lastUploadState = uploadState
+        self.lastIsActivelyRecording = isActivelyRecording
     }
 
     func showError(_ message: String) {
@@ -1281,6 +1677,20 @@ private final class MockPassiveCaptureInteractor: PassiveCapturePresenterToInter
     private(set) var lastUploadUrl: String?
     private(set) var lastVideoData: Data?
 
+    // Telemetry tracking
+    private(set) var logFaceQualityGatePassedCalled = false
+    private(set) var lastTimeToReadyMs: Int?
+    private(set) var logFaceQualityGateTimeoutCalled = false
+    private(set) var lastGateTimeoutHint: String?
+    private(set) var logFaceVideoManualModeForcedCalled = false
+    private(set) var lastManualModeTriggerReason: FaceVideoManualTriggerReason?
+    private(set) var logFaceQualitySessionSummaryCalled = false
+    private(set) var lastSessionSummaryDominantHint: String?
+    private(set) var lastSessionSummaryAutocaptureFired: Bool?
+    private(set) var lastSessionSummaryTotalDurationMs: Int?
+    private(set) var lastSessionSummaryHintDurationsMs: [String: Int]?
+    private(set) var lastSessionSummaryDominantHintPercent: Int?
+
     func setUploadUrl(_ uploadUrl: String?) {
         setUploadUrlCalled = true
         lastUploadUrl = uploadUrl
@@ -1294,6 +1704,36 @@ private final class MockPassiveCaptureInteractor: PassiveCapturePresenterToInter
     func logFaceCaptureSucceeded() async {}
 
     func logFaceCaptureFailed(errorMessage: String) async {}
+
+    func logFaceQualityGatePassed(timeToReadyMs: Int) async {
+        logFaceQualityGatePassedCalled = true
+        lastTimeToReadyMs = timeToReadyMs
+    }
+
+    func logFaceQualityGateTimeout(lastHint: String) async {
+        logFaceQualityGateTimeoutCalled = true
+        lastGateTimeoutHint = lastHint
+    }
+
+    func logFaceVideoManualModeForced(triggerReason: FaceVideoManualTriggerReason) async {
+        logFaceVideoManualModeForcedCalled = true
+        lastManualModeTriggerReason = triggerReason
+    }
+
+    func logFaceQualitySessionSummary(
+        totalDurationMs: Int,
+        hintDurationsMs: [String: Int],
+        dominantHint: String,
+        dominantHintPercent: Int,
+        autocaptureFired: Bool
+    ) async {
+        logFaceQualitySessionSummaryCalled = true
+        lastSessionSummaryDominantHint = dominantHint
+        lastSessionSummaryAutocaptureFired = autocaptureFired
+        lastSessionSummaryTotalDurationMs = totalDurationMs
+        lastSessionSummaryHintDurationsMs = hintDurationsMs
+        lastSessionSummaryDominantHintPercent = dominantHintPercent
+    }
 }
 
 // MARK: - Mock Router
@@ -1318,6 +1758,25 @@ private final class MockPassiveCaptureInteractor: PassiveCapturePresenterToInter
     override func handleError(_ error: TruoraException) {
         handleErrorCalled = true
         lastErrorMessage = error.localizedDescription
+    }
+}
+
+// MARK: - Hidden Face Test Helpers
+
+/// Subclass that overrides `isFaceHidden` so unit tests can drive hidden/visible
+/// without constructing a real VNFaceLandmarks2D (not possible in pure unit tests).
+/// The flag is lock-guarded so the synchronous override is safe to call from any queue.
+private final class HiddenFaceStubPresenter: PassiveCapturePresenter {
+    private let lock = NSLock()
+    private var _forceHiddenFace = false
+
+    var forceHiddenFace: Bool {
+        get { lock.withLock { _forceHiddenFace } }
+        set { lock.withLock { _forceHiddenFace = newValue } }
+    }
+
+    override func isFaceHidden(_ face: DetectionResult) -> Bool {
+        lock.withLock { _forceHiddenFace }
     }
 }
 

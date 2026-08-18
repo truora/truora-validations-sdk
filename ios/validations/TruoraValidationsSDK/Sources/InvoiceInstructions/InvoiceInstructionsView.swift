@@ -112,7 +112,7 @@ struct InvoiceInstructionsContentView: View {
                 // Illustration - matches DocumentIntroContentView pattern
                 SwiftUI.Image("invoice_instructions", bundle: .truoraModule)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .scaledToFit()
                     .frame(maxHeight: maxImageHeight)
                     .frame(maxWidth: isPhone ? .infinity : 1024)
                     .clipped()
@@ -128,15 +128,21 @@ struct InvoiceInstructionsContentView: View {
                     // Subtitle: MX has bold-red validity period, CO has plain text
                     invoiceSubtitleText
 
-                    // Provider logos row
-                    HStack(spacing: countryContent.logoSpacing) {
-                        ForEach(countryContent.providerLogoNames, id: \.self) { logoName in
-                            SwiftUI.Image(logoName, bundle: .truoraModule)
+                    // Provider logos row. Each logo sits in a per-asset height slot so the
+                    // chunkier ones (TELMEX) don't dwarf the wider/shorter ones (CFE). Top
+                    // alignment lets a taller slot (e.g. Totalplay, whose `p`/`y` descenders
+                    // need extra room) keep its caps on the same line as the others — only
+                    // the descenders drop below.
+                    HStack(alignment: .top, spacing: countryContent.logoSpacing) {
+                        ForEach(countryContent.providerLogos, id: \.name) { logo in
+                            SwiftUI.Image(logo.name, bundle: .truoraModule)
                                 .resizable()
                                 .scaledToFit()
-                                .frame(height: 60)
+                                .frame(maxWidth: .infinity, maxHeight: logo.height)
+                                .frame(height: logo.height)
                         }
                     }
+                    .frame(maxWidth: .infinity)
                     .padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

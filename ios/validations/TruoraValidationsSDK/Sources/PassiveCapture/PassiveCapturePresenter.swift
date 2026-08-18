@@ -18,6 +18,7 @@ private enum CameraLifecycleState {
     case recording // Actively recording
 }
 
+// swiftlint:disable:next type_body_length
 class PassiveCapturePresenter {
     weak var view: PassiveCapturePresenterToView?
     var interactor: PassiveCapturePresenterToInteractor?
@@ -63,10 +64,29 @@ class PassiveCapturePresenter {
     private let timingLock = NSLock()
     private var videoProcessingStartTime: Date?
     private var faceDetectionStartTime: Date?
-    static let manualTimeoutSeconds: TimeInterval = 4.0
+    /// Wall-clock timestamp when the countdown ended and face-waiting began.
+    /// Used to compute `TimeToReadyMs` for the `FaceQualityGatePassed` event.
+    private var countdownEndedAt: Date?
+    static let manualTimeoutSeconds: TimeInterval = 10.0
+
+    /// Continuous time the face must stay in a passing state before autocapture fires.
     static let requiredDetectionTime: TimeInterval = 1.0
 
-    // Face centering thresholds (normalized [0,1] coordinates)
+    /// How long the "¡Listo!" success state is held (camera still live) before navigating
+    /// to results. Matches the web Passive Liveness flow (SHOW_LOADING_RESULTS_MS = 1000).
+    static let successStateHoldNanoseconds: UInt64 = 1_000_000_000
+
+    // Face positioning thresholds, in Vision-normalized coordinates (fraction of the
+    // detector frame, [0,1]). Below `minFaceHeight` the face is too far → .moveCloser;
+    // above `maxFaceHeight` it is too close → .moveBack; in between but off-center →
+    // .centerFace.
+    //
+    // The cross-platform contract specifies these as *oval*-normalized (0.35 / 0.85 of the
+    // oval height). On iOS the presenter only sees raw Vision coordinates — the accurate
+    // Vision→view transform lives in the camera preview layer — so we keep the shipped
+    // Vision-normalized basis (the same one used by the centering check below) and preserve
+    // the current accept window. The split into moveCloser/moveBack/centerFace is a pure
+    // feedback-message improvement; the final threshold values are tuned during device QA.
     static let minFaceHeight: CGFloat = 0.20
     static let maxFaceHeight: CGFloat = 0.85
     static let centerDistanceThreshold: CGFloat = 0.25
@@ -88,6 +108,18 @@ class PassiveCapturePresenter {
     private static let multiFaceEnterFrames: Int = 2
     private static let multiFaceExitFrames: Int = 3
 
+    /// Consecutive occluded frames required before emitting .hiddenFace, mirrors Android's 3-frame confirm.
+    static let minHiddenFaceFrames: Int = 3
+    private var hiddenFaceFrames: Int = 0
+
+    /// Below this overall landmark confidence the face is treated as occluded. Tuned on device.
+    static let hiddenFaceMinLandmarkConfidence: Float = 0.87
+
+    /// Consecutive no-face frames tolerated while .hiddenFace is showing, to avoid a
+    /// SHOW_FACE/HIDDEN_FACE flicker when a hand momentarily breaks Vision's detection.
+    static let hiddenFaceMissTolerance: Int = 5
+    private var noFaceFramesSinceHidden: Int = 0
+
     /// EMA blend factor for per-face oval coordinates. Lower = more smoothing.
     /// 0.4 keeps response snappy while killing the per-frame "throb" Vision bboxes
     /// produce on stationary faces.
@@ -100,6 +132,21 @@ class PassiveCapturePresenter {
     private var multiFaceClearCount: Int = 0
     private var multiFaceActive: Bool = false
     private var smoothedMultiFaceBoxes: [CGRect] = []
+
+    /// Last non-recording feedback hint shown during the autocapture wait window.
+    /// Reported in the `FaceQualityGateTimeout.LastHint` property.
+    private var lastAutocaptureHint: FeedbackType = .showFace
+
+    // MARK: - Session Summary Tracking
+
+    /// Wall-clock time when the capture session became active (camera ready).
+    private var sessionStartTime: Date?
+    /// Wall-clock time when the current feedback hint started being shown.
+    private var hintStartTime: Date?
+    /// Cumulative time (seconds) each hint was displayed during the session.
+    private var hintDurations: [FeedbackType: TimeInterval] = [:]
+    /// True when the autocapture gate fired and triggered recording.
+    private var autocaptureFired: Bool = false
 
     private let validationId: String
 
@@ -138,7 +185,8 @@ class PassiveCapturePresenter {
             showHelpDialog: showHelpDialog,
             showSettingsPrompt: showSettingsPrompt,
             lastFrameData: lastFrameData,
-            uploadState: uploadState
+            uploadState: uploadState,
+            isActivelyRecording: lifecycleState == .recording
         )
     }
 
@@ -169,8 +217,13 @@ class PassiveCapturePresenter {
 
         currentState = .recording
         currentFeedback = .showFace
+        lastAutocaptureHint = .showFace
 
-        // Start manual timeout window (4s) while we wait for a face
+        // Record the moment the countdown ends and face-waiting begins so we can
+        // compute TimeToReadyMs in FaceQualityGatePassed.
+        countdownEndedAt = timeProvider.now
+
+        // Start manual timeout window (manualTimeoutSeconds) while we wait for a face
         startProcessingTimer()
 
         // Reset face detection timer so we require a fresh consecutive second
@@ -185,10 +238,23 @@ class PassiveCapturePresenter {
 
         lifecycleState = .recording
         currentState = .recording
-        currentFeedback = .recording
+        // .recording is no longer in FeedbackType — the overlay reads isActivelyRecording
+        // (derived from lifecycleState) to switch the pill and the progress ring.
+        currentFeedback = .none
 
         // Set video processing start time (thread-safe)
         startProcessingTimer()
+
+        // Emit FaceQualityGatePassed only when the autocapture gate fires — i.e. the
+        // countdown → wait-for-face flow ran, so countdownEndedAt is set. Manual record-button
+        // starts (and resume-from-suspend) leave countdownEndedAt nil and do NOT fire it: per
+        // the cross-platform contract this is an auto-gate event, not a manual-capture event.
+        if let start = countdownEndedAt {
+            let timeToReadyMs = Int(timeProvider.now.timeIntervalSince(start) * 1000)
+            countdownEndedAt = nil
+            autocaptureFired = true
+            await interactor?.logFaceQualityGatePassed(timeToReadyMs: timeToReadyMs)
+        }
 
         await updateUI()
 
@@ -197,7 +263,7 @@ class PassiveCapturePresenter {
     }
 
     /// Checks if manual capture timeout has been reached (thread-safe)
-    /// Returns true if 4 seconds have passed since video processing started
+    /// Returns true if `manualTimeoutSeconds` have passed since video processing started
     private func hasManualTimeout() -> Bool {
         timingLock.withLock {
             guard let startTime = videoProcessingStartTime else {
@@ -250,33 +316,31 @@ class PassiveCapturePresenter {
         }
     }
 
-    /// Checks if the detected face is centered on the oval guide with
-    /// appropriate size. The oval is centered in the overlay which uses
-    /// extendingIntoSafeArea(), so its center is at (0.5, 0.5) in
-    /// normalized screen coordinates. Vision framework returns normalized
-    /// coordinates with Y-origin at bottom-left, but since the oval center
-    /// is at 0.5 on both axes, the distance calculation is symmetric.
-    private func isFaceCenteredOnOval(_ face: DetectionResult) -> Bool {
-        let bbox = face.boundingBox
-        let faceHeight = bbox.height
-        let faceCenterX = bbox.midX
-        let faceCenterY = bbox.midY
-
-        // Check face size (height-based since faces are taller than wide)
-        guard faceHeight >= Self.minFaceHeight,
-              faceHeight <= Self.maxFaceHeight else {
-            return false
+    /// Classifies the face size relative to the oval. Returns `.moveCloser` when the face is
+    /// too far (height below `minFaceHeight`), `.moveBack` when too close (above
+    /// `maxFaceHeight`), or `nil` when the size is in the acceptable range.
+    private func faceSizeFeedback(_ face: DetectionResult) -> FeedbackType? {
+        // Height-based since faces are taller than wide.
+        let faceHeight = face.boundingBox.height
+        if faceHeight < Self.minFaceHeight {
+            return .moveCloser
         }
+        if faceHeight > Self.maxFaceHeight {
+            return .moveBack
+        }
+        return nil
+    }
 
-        // Oval center is at (0.5, 0.5) in the full-screen overlay
-        let ovalCenterX: CGFloat = 0.5
-        let ovalCenterY: CGFloat = 0.5
+    /// Checks whether the face is centered on the oval guide. The oval is centered in the
+    /// overlay which uses extendingIntoSafeArea(), so its center is at (0.5, 0.5) in
+    /// normalized screen coordinates. Vision returns normalized coordinates with Y-origin at
+    /// bottom-left, but since the oval center is at 0.5 on both axes the distance is symmetric.
+    /// Size is validated separately by `faceSizeFeedback(_:)`.
+    private func isFaceCentered(_ face: DetectionResult) -> Bool {
+        let bbox = face.boundingBox
 
-        // Euclidean distance from face center to oval center
-        let distance = sqrt(
-            pow(faceCenterX - ovalCenterX, 2)
-                + pow(faceCenterY - ovalCenterY, 2)
-        )
+        // Oval center is at (0.5, 0.5) in the full-screen overlay.
+        let distance = hypot(bbox.midX - 0.5, bbox.midY - 0.5)
 
         return distance <= Self.centerDistanceThreshold
     }
@@ -289,14 +353,25 @@ class PassiveCapturePresenter {
         return abs(yaw) < Self.yawThresholdRadians
     }
 
+    /// Returns true when the overall landmark confidence drops below the occluded threshold.
+    func isFaceHidden(_ face: DetectionResult) -> Bool {
+        guard case .face(let landmarks, _) = face.category else { return false }
+        guard let landmarks else { return false }
+        return landmarks.confidence < Self.hiddenFaceMinLandmarkConfidence
+    }
+
     /// Transitions to manual mode with error message (used when autocapture times out)
     private func transitionToManualWithError() async {
+        let hintKey = lastAutocaptureHint.telemetryKey
         resetFaceDetectionTimer()
         resetMultiFaceState()
+        countdownEndedAt = nil
         currentState = .manual
         currentFeedback = .showFace
         await view?.updateDetectedFaceBoundingBoxes([])
         await updateUI()
+        await interactor?.logFaceQualityGateTimeout(lastHint: hintKey)
+        await interactor?.logFaceVideoManualModeForced(triggerReason: .qualityGateTimeout)
     }
 
     /// Transitions to manual mode without error message (used when autocapture is disabled)
@@ -361,6 +436,59 @@ class PassiveCapturePresenter {
         multiFaceClearCount = 0
         multiFaceActive = false
         smoothedMultiFaceBoxes = []
+        hiddenFaceFrames = 0
+    }
+
+    // MARK: - Session Summary Helpers
+
+    /// Credits the elapsed time since the last hint transition to `currentFeedback` and
+    /// restarts the hint clock. Call before mutating `currentFeedback`.
+    private func creditCurrentHintDuration() {
+        let now = timeProvider.now
+        if let start = hintStartTime {
+            let elapsed = now.timeIntervalSince(start)
+            hintDurations[currentFeedback, default: 0] += elapsed
+        }
+        hintStartTime = now
+    }
+
+    /// Marks the session as started (no-op if already started).
+    private func startSessionTracking() {
+        guard sessionStartTime == nil else { return }
+        sessionStartTime = timeProvider.now
+        hintStartTime = timeProvider.now
+    }
+
+    /// Builds and emits `face_quality_session_summary`. Returns immediately if
+    /// no session time was recorded to avoid emitting empty events.
+    private func emitSessionSummaryIfNeeded() async {
+        guard let start = sessionStartTime else { return }
+        // Credit remaining time to the current hint before computing.
+        creditCurrentHintDuration()
+
+        let totalDuration = timeProvider.now.timeIntervalSince(start)
+        let totalMs = Int(totalDuration * 1000)
+        guard totalMs > 0 else { return }
+
+        var hintDurationsMs: [String: Int] = [:]
+        for (hint, seconds) in hintDurations {
+            let ms = Int(seconds * 1000)
+            guard ms > 0 else { continue }
+            hintDurationsMs[hint.telemetryKey, default: 0] += ms
+        }
+
+        let dominant = hintDurationsMs.max { $0.value < $1.value }
+        let dominantKey = dominant?.key ?? currentFeedback.telemetryKey
+        let dominantMs = dominant?.value ?? 0
+        let dominantPercent = totalMs > 0 ? Int(Double(dominantMs) / Double(totalMs) * 100) : 0
+
+        await interactor?.logFaceQualitySessionSummary(
+            totalDurationMs: totalMs,
+            hintDurationsMs: hintDurationsMs,
+            dominantHint: dominantKey,
+            dominantHintPercent: dominantPercent,
+            autocaptureFired: autocaptureFired
+        )
     }
 
     /// EMA-smooths per-face boxes against the previous frame so stationary faces
@@ -562,6 +690,7 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         isSettingUpCamera = false
         lifecycleState = .ready
         showSettingsPrompt = false
+        startSessionTracking()
 
         // Log view and camera events concurrently (independent operations)
         async let logView: Void = logViewRendered()
@@ -598,6 +727,9 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
             } else {
                 debugLog("🟢 PassiveCapturePresenter: Camera ready, autocapture disabled")
                 await transitionToManualWithoutError()
+                await interactor?.logFaceVideoManualModeForced(
+                    triggerReason: .clientWithoutAutocapture
+                )
             }
         }
     }
@@ -646,9 +778,6 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         // This prevents UI from showing buttons or messages
         currentFeedback = .none
 
-        // Pause camera during upload - freezes preview on last frame without tearing down
-        await view?.pauseCamera()
-
         await updateUI()
         interactor?.uploadVideo(videoData)
     }
@@ -673,7 +802,7 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
             return false
         }
 
-        // Don't process frames during upload - camera is stopped
+        // Don't process frames during upload - preview is live but detection should not run
         if uploadState == .uploading || uploadState == .success {
             return false
         }
@@ -692,27 +821,27 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
     private func resetTimerAndUpdateFeedback(_ feedback: FeedbackType) async {
         resetFaceDetectionTimer()
         guard lifecycleState != .recording else { return }
+        creditCurrentHintDuration()
         currentFeedback = feedback
+        // Track the last visible hint so FaceQualityGateTimeout can report it.
+        lastAutocaptureHint = feedback
         await updateUI()
     }
 
     func detectionsReceived(_ results: [DetectionResult]) async {
         guard await validateCurrentStateAndResetTimer() else { return }
 
-        // Extract faces from detection results
         let faces = results.filter { result in
-            guard case .face = result.category else {
-                return false
-            }
+            guard case .face = result.category else { return false }
             return true
         }
 
         let renderableBoxes = faces
             .map(\.boundingBox)
             .filter { $0.height >= Self.minMultiFaceRenderHeight }
-        // Classify multi-face on the raw face count so the .multiplePeople
-        // toast still fires when a tiny background face is filtered out by
-        // minMultiFaceRenderHeight; that filter only gates rendering.
+        // Classify multi-face on the raw face count so the .multiplePeople toast still fires
+        // when a tiny background face is filtered out by minMultiFaceRenderHeight (that filter
+        // only gates rendering).
         let isMultiFaceFrame = faces.count >= 2
 
         if await shouldWaitAfterApplyingHysteresis(
@@ -723,26 +852,85 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         }
 
         guard !faces.isEmpty else {
-            await view?.updateDetectedFaceBoundingBoxes([])
-            await resetTimerAndUpdateFeedback(.showFace)
+            await processNoFaceFrame()
             return
         }
 
         await view?.updateDetectedFaceBoundingBoxes([])
+        await processSingleFace(faces[0])
+    }
 
-        // Single face detected - check if centered on the oval
-        guard isFaceCenteredOnOval(faces[0]) else {
+    /// Handles the no-face branch. While .hiddenFace is showing, tolerates brief detector
+    /// dropouts to avoid a SHOW_FACE/HIDDEN_FACE flicker when a covering hand momentarily
+    /// breaks Vision. After `hiddenFaceMissTolerance` consecutive no-face frames, transitions
+    /// to .showFace.
+    private func processNoFaceFrame() async {
+        await view?.updateDetectedFaceBoundingBoxes([])
+        if currentFeedback == .hiddenFace, noFaceFramesSinceHidden < Self.hiddenFaceMissTolerance {
+            noFaceFramesSinceHidden += 1
+            return
+        }
+        hiddenFaceFrames = 0
+        noFaceFramesSinceHidden = 0
+        await resetTimerAndUpdateFeedback(.showFace)
+    }
+
+    /// Validates a single detected face through size → centering → yaw → occlusion → gate,
+    /// emitting the appropriate feedback at each failed check or starting recording when all
+    /// checks pass continuously for `requiredDetectionTime`.
+    private func processSingleFace(_ primaryFace: DetectionResult) async {
+        if let sizeFeedback = faceSizeFeedback(primaryFace) {
+            debugLog("🟠 Face out of size range, showing \(sizeFeedback) feedback")
+            hiddenFaceFrames = 0
+            await resetTimerAndUpdateFeedback(sizeFeedback)
+            return
+        }
+
+        guard isFaceCentered(primaryFace) else {
             debugLog("🟠 Face not centered on oval, showing CENTER_FACE feedback")
+            hiddenFaceFrames = 0
             await resetTimerAndUpdateFeedback(.centerFace)
             return
         }
 
-        guard isFaceFacingForward(faces[0]) else {
+        guard isFaceFacingForward(primaryFace) else {
             debugLog("🟠 Face not facing forward, showing LOOK_FORWARD feedback")
+            hiddenFaceFrames = 0
             await resetTimerAndUpdateFeedback(.lookForward)
             return
         }
 
+        if await checkAndHandleHiddenFace(primaryFace) {
+            return
+        }
+
+        await proceedToAutocaptureGate()
+    }
+
+    /// Returns true and emits .hiddenFace once `minHiddenFaceFrames` consecutive occluded
+    /// frames are observed; otherwise resets hidden state and returns false.
+    private func checkAndHandleHiddenFace(_ face: DetectionResult) async -> Bool {
+        if isFaceHidden(face) {
+            hiddenFaceFrames += 1
+            if hiddenFaceFrames >= Self.minHiddenFaceFrames {
+                debugLog("🟠 Face occluded for \(hiddenFaceFrames) frames, showing HIDDEN_FACE feedback")
+                noFaceFramesSinceHidden = 0
+                await resetTimerAndUpdateFeedback(.hiddenFace)
+            } else {
+                // Below threshold: don't change visible feedback yet, but reset the gate timer
+                // so intermittent hidden frames don't silently accumulate towards autocapture.
+                resetFaceDetectionTimer()
+            }
+            return true
+        }
+        hiddenFaceFrames = 0
+        noFaceFramesSinceHidden = 0
+        return false
+    }
+
+    /// Advances the autocapture gate timer; starts recording once the face has held a passing
+    /// state continuously for `requiredDetectionTime`.
+    private func proceedToAutocaptureGate() async {
         // Start timer on first valid face, or check if we've had consecutive faces for 1 second
         if faceDetectionStartTime == nil {
             startFaceDetectionTimer()
@@ -761,6 +949,9 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
     func viewWillDisappear() async {
         // Stop runtime injection detection
         stopRuntimeDetection()
+
+        // Emit session summary before tearing down (no-op if session never started).
+        await emitSessionSummaryIfNeeded()
 
         // Pause video first to discard any in-progress recording
         if lifecycleState == .recording {
@@ -867,8 +1058,8 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         await view?.resumeCamera()
 
         // If we were in recording (showFace phase) waiting for face or manual timeout, we reset the
-        // processing timer on suspend so the 4s manual timeout never fired. Restart it so the
-        // fallback to manual "start recording" can trigger after 4s.
+        // processing timer on suspend so the timeout never fired. Restart it so the
+        // fallback to manual "start recording" can trigger after the timeout.
         if stateAtSuspend == .recording, lifecycleState != .recording {
             startProcessingTimer()
             stateAtSuspend = nil
@@ -1011,12 +1202,12 @@ extension PassiveCapturePresenter: PassiveCaptureInteractorToPresenter {
 
         await updateUI()
 
-        // Stop camera before navigating to results
+        // Keep the camera live while the "¡Listo!" success state is shown (web parity),
+        // then stop it right before navigating.
+        try? await timeProvider.sleep(nanoseconds: Self.successStateHoldNanoseconds)
+
         await view?.stopCamera()
         lifecycleState = .stopped
-
-        // Small delay before navigation
-        try? await timeProvider.sleep(nanoseconds: 500_000_000)
 
         do {
             try await router?.navigateToResult(

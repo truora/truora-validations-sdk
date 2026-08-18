@@ -31,6 +31,7 @@ import UIKit
     /// person is on-frame. Empty otherwise. Consumed by `PassiveCaptureOverlayView`
     /// to render per-face ovals.
     @Published var detectedFaceBoxes: [CGRect] = []
+    @Published var isActivelyRecording: Bool = false
 
     var presenter: PassiveCaptureViewToPresenter?
     weak var cameraViewDelegate: CameraViewDelegate?
@@ -189,7 +190,8 @@ extension PassiveCaptureViewModel: PassiveCapturePresenterToView {
         showHelpDialog: Bool,
         showSettingsPrompt: Bool,
         lastFrameData: Data?,
-        uploadState: UploadState
+        uploadState: UploadState,
+        isActivelyRecording: Bool
     ) {
         self.state = state
         self.feedback = feedback
@@ -198,6 +200,7 @@ extension PassiveCaptureViewModel: PassiveCapturePresenterToView {
         self.showSettingsPrompt = showSettingsPrompt
         self.lastFrameData = lastFrameData
         self.uploadState = uploadState
+        self.isActivelyRecording = isActivelyRecording
     }
 
     func showError(_ message: String) {

@@ -75,16 +75,24 @@ struct DefaultCameraInfoProvider: CameraInfoProviding {
     }
 
     private func mapDeviceType(_ type: AVCaptureDevice.DeviceType) -> CameraDeviceType {
-        if type == .builtInWideAngleCamera { return .builtInWideAngle }
-        if type == .builtInTelephotoCamera { return .builtInTelephoto }
+        if type == .builtInWideAngleCamera {
+            return .builtInWideAngle
+        }
+        if type == .builtInTelephotoCamera {
+            return .builtInTelephoto
+        }
 
         if #available(iOS 13.0, *), type == .builtInUltraWideCamera {
             return .builtInUltraWide
         }
 
         if #available(iOS 17.0, *) {
-            if type == .external { return .external }
-            if type == .continuityCamera { return .continuityCamera }
+            if type == .external {
+                return .external
+            }
+            if type == .continuityCamera {
+                return .continuityCamera
+            }
         }
 
         return .unknown

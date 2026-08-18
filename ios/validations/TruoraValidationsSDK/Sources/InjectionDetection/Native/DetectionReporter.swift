@@ -32,6 +32,13 @@ actor DetectionReporter {
     private let flowType: String
     private let blockingThreshold: Int
     private let bridge: (any DetectionBridging)?
+    private let attestation: any AttestationProviding
+    /// Maps an `AttestationSnapshot` to the metadata fields merged into each
+    /// detection report. Production calls `buildAttestationMetadata`; tests can
+    /// inject a builder that emits colliding keys (e.g. `trust_score`) to
+    /// guarantee the merge closure `{ current, _ in current }` actually defends
+    /// against base-metadata overwrites.
+    private let attestationMetadataBuilder: @Sendable (AttestationSnapshot) -> [String: Any]
     private var validationId: String = ""
     private var accumulatedBitmask: UInt32 = 0
     private var nativeDisabledForSession: Bool = false
@@ -45,18 +52,31 @@ actor DetectionReporter {
     ///   - blockingThreshold: Trust score below which the flow is blocked (default 50)
     ///   - bridge: Native detection bridge; defaults to `NativeDetectionBridge.create()`
     ///     which returns nil when the XCFramework binary is absent.
+    ///   - attestation: Hardware attestation provider; defaults to a no-op provider
+    ///     that emits `attest_status = "unavailable_unsupported"`. Use
+    ///     `NoOpAttestationProvider(reason: .disabled)` when the integrator
+    ///     explicitly opts out via config; leave the default when no provider
+    ///     was wired at all.
+    ///   - attestationMetadataBuilder: Internal injection point for tests that
+    ///     need to exercise the merge collision contract. Defaults to the
+    ///     production mapper `buildAttestationMetadata`.
     init(
         detector: InjectionDetector,
         logger: TruoraLogger,
         flowType: String,
         blockingThreshold: Int = 50,
-        bridge: (any DetectionBridging)? = NativeDetectionBridge.create()
+        bridge: (any DetectionBridging)? = NativeDetectionBridge.create(),
+        attestation: any AttestationProviding = NoOpAttestationProvider(reason: .unsupported),
+        attestationMetadataBuilder: @escaping @Sendable (AttestationSnapshot) -> [String: Any] =
+            buildAttestationMetadata
     ) {
         self.detector = detector
         self.logger = logger
         self.flowType = flowType
         self.blockingThreshold = blockingThreshold
         self.bridge = bridge
+        self.attestation = attestation
+        self.attestationMetadataBuilder = attestationMetadataBuilder
     }
 
     /// Updates the validation ID used in subsequent `reportLayer` calls.
@@ -114,8 +134,12 @@ actor DetectionReporter {
         let shouldBlock = trustResult.trustScore < blockingThreshold
         let level: LogLevel = shouldBlock ? .error : .info
 
-        // 10. Log the detection report as a device event
-        let metadata: [String: Any] = [
+        // 10. Poll attestation snapshot (non-blocking actor read)
+        let attestationSnapshot = await attestation.snapshot()
+        let attestationFields = attestationMetadataBuilder(attestationSnapshot)
+
+        // 11. Log the detection report as a device event
+        let baseMetadata: [String: Any] = [
             "trust_score": trustResult.trustScore,
             "risk_bitmask": String(accumulatedBitmask, radix: 16),
             "delta_bitmask": String(deltaBitmask, radix: 16),
@@ -123,6 +147,9 @@ actor DetectionReporter {
             "bitmask_v": BitmaskEncoder.version,
             "signature": signature
         ]
+        // B4-3: Use { current, _ in current } so attestation fields cannot overwrite base detection
+        // metadata (trust_score, risk_bitmask, signature, etc.) if key names ever collide.
+        let metadata = baseMetadata.merging(attestationFields) { current, _ in current }
 
         await logger.logDevice(
             eventName: "injection_\(layerName)",

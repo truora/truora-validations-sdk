@@ -28,6 +28,7 @@ import UIKit
         showHelpDialog: Bool,
         showRotationAnimation: Bool,
         showLoadingScreen: Bool,
+        uploadState: UploadState,
         frontPhotoData: Data?,
         frontPhotoStatus: CaptureStatus?,
         backPhotoData: Data?,

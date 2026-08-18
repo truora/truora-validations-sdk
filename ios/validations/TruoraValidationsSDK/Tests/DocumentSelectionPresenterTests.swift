@@ -29,6 +29,7 @@ import XCTest
         mockInteractor = nil
         mockRouter = nil
         try? ValidationConfig.shared.setValidation(.document(Document()))
+        ValidationConfig.shared.reset()
         super.tearDown()
     }
 
@@ -378,6 +379,201 @@ import XCTest
         XCTAssertTrue(mockView.lastIsDocumentLocked ?? false)
         XCTAssertEqual(mockView.lastSelectedDocument, .nationalId, "documentType should work as fallback when allowedDocumentTypes is empty")
     }
+
+    // MARK: - Fixed Selection (Unified Screen) Tests
+
+    func testViewDidLoad_withFixedSelection_setsSelectionFixed() async throws {
+        let config = Document()
+            .setAllowedCountries("CO")
+            .setAllowedDocumentTypes("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertTrue(mockView.setSelectionFixedCalled, "Fixed unified screen should be signalled when both country and document are locked")
+        XCTAssertTrue(mockView.lastIsSelectionFixed ?? false)
+    }
+
+    func testContinueTapped_withFixedSelection_callsCreateValidation() async throws {
+        try await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "acc-123")
+        let config = Document()
+            .setAllowedCountries("CO")
+            .setAllowedDocumentTypes("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        let fakeResponse = NativeValidationCreateResponse(
+            validationId: "v123",
+            instructions: NativeValidationInstructions(
+                fileUploadLink: nil,
+                frontUrl: "https://upload.example.com/front",
+                reverseUrl: nil
+            )
+        )
+        mockInteractor.createValidationResult = .success(fakeResponse)
+
+        await sut.continueTapped()
+
+        XCTAssertTrue(mockView.setLoadingCalled, "Should show loading while creating validation")
+        XCTAssertFalse(mockView.lastIsLoading ?? true, "Should hide loading after validation created")
+    }
+
+    func testContinueTapped_withFixedSelection_navigatesToCapture() async throws {
+        try await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "acc-123")
+        let config = Document()
+            .setAllowedCountries("CO")
+            .setAllowedDocumentTypes("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        let fakeResponse = NativeValidationCreateResponse(
+            validationId: "v123",
+            instructions: NativeValidationInstructions(
+                fileUploadLink: nil,
+                frontUrl: "https://upload.example.com/front",
+                reverseUrl: nil
+            )
+        )
+        mockInteractor.createValidationResult = .success(fakeResponse)
+
+        await sut.continueTapped()
+
+        XCTAssertFalse(mockRouter.navigateToDocumentIntroCalled, "Intro should be skipped for fixed selection")
+        XCTAssertTrue(mockRouter.navigateToDocumentCaptureCalled, "Should navigate directly to capture")
+    }
+
+    func testContinueTapped_withFixedSelection_whenCreateValidationThrows_resetsLoadingAndRoutesError() async throws {
+        try await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "acc-123")
+        let config = Document()
+            .setAllowedCountries("CO")
+            .setAllowedDocumentTypes("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+        await sut.viewDidLoad()
+
+        mockInteractor.createValidationResult = .failure(
+            TruoraException.network(message: "timeout")
+        )
+
+        await sut.continueTapped()
+
+        XCTAssertTrue(mockView.setLoadingCalled)
+        XCTAssertFalse(mockView.lastIsLoading ?? true, "Loading should be hidden after failure")
+        XCTAssertTrue(mockRouter.handleErrorCalled, "Error should be routed on validation failure")
+        XCTAssertFalse(mockRouter.navigateToDocumentCaptureCalled)
+    }
+
+    func testContinueTapped_withFixedSelection_whenFrontUrlMissing_routesError() async throws {
+        try await ValidationConfig.shared.configure(apiKey: "test-key", accountId: "acc-123")
+        let config = Document()
+            .setAllowedCountries("CO")
+            .setAllowedDocumentTypes("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+        await sut.viewDidLoad()
+
+        let responseWithNoFrontUrl = NativeValidationCreateResponse(
+            validationId: "v123",
+            instructions: NativeValidationInstructions(
+                fileUploadLink: nil,
+                frontUrl: "",
+                reverseUrl: nil
+            )
+        )
+        mockInteractor.createValidationResult = .success(responseWithNoFrontUrl)
+
+        await sut.continueTapped()
+
+        XCTAssertFalse(mockView.lastIsLoading ?? true, "Loading should be hidden")
+        XCTAssertTrue(mockRouter.handleErrorCalled, "Missing front URL should route an error")
+        XCTAssertFalse(mockRouter.navigateToDocumentCaptureCalled)
+    }
+
+    func testViewDidLoad_withFixedSelection_setsLoadedImageStateWhenUrlReturned() async throws {
+        let config = Document()
+            .setAllowedCountries("CO")
+            .setAllowedDocumentTypes("national-id")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        mockInteractor.fetchDocumentExampleURL = URL(string: "https://example.com/doc.png")
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+
+        XCTAssertEqual(
+            mockView.lastDocumentImageState,
+            try .loaded(XCTUnwrap(URL(string: "https://example.com/doc.png"))),
+            "Should set .loaded state when interactor returns a URL"
+        )
+    }
+
+    func testContinueTapped_withNonFixedSelection_navigatesToIntro() async throws {
+        let config = Document()
+            .setAllowedCountries("CO,MX")
+        try ValidationConfig.shared.setValidation(.document(config))
+
+        let cameraChecker = MockCameraPermissionChecker(status: .authorized, requestAccessResult: nil)
+        sut = DocumentSelectionPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            cameraPermissionChecker: cameraChecker
+        )
+
+        await sut.viewDidLoad()
+        await sut.countrySelected(.co)
+        await sut.documentSelected(.nationalId)
+        await sut.continueTapped()
+
+        XCTAssertTrue(mockRouter.navigateToDocumentIntroCalled, "Non-fixed selection should navigate to Intro as before")
+        XCTAssertFalse(mockRouter.navigateToDocumentCaptureCalled)
+    }
 }
 
 // MARK: - Mocks
@@ -440,10 +636,26 @@ import XCTest
     func displayCameraPermissionAlert() {
         displayCameraPermissionAlertCalled = true
     }
+
+    private(set) var setSelectionFixedCalled = false
+    private(set) var lastIsSelectionFixed: Bool?
+
+    func setSelectionFixed(_ isFixed: Bool) {
+        setSelectionFixedCalled = true
+        lastIsSelectionFixed = isFixed
+    }
+
+    private(set) var lastDocumentImageState: DocumentImageState?
+
+    func setDocumentImageState(_ state: DocumentImageState) {
+        lastDocumentImageState = state
+    }
 }
 
 private final class MockDocumentSelectionInteractor: @preconcurrency DocumentSelectionPresenterToInteractor {
     private(set) var fetchSupportedCountriesCalled = false
+    var createValidationResult: Result<NativeValidationCreateResponse, Error>?
+    var fetchDocumentExampleURL: URL?
 
     func fetchSupportedCountries() {
         fetchSupportedCountriesCalled = true
@@ -454,11 +666,24 @@ private final class MockDocumentSelectionInteractor: @preconcurrency DocumentSel
     func logContinueButtonClicked(selectedCountry: NativeCountry?, selectedDocument: NativeDocumentType?) async {}
 
     func logCancelButtonClicked() async {}
+
+    func createValidation(accountId: String) async throws -> NativeValidationCreateResponse {
+        switch createValidationResult {
+        case .success(let response): return response
+        case .failure(let error): throw error
+        case .none: throw TruoraException.sdk(SDKError(type: .internalError))
+        }
+    }
+
+    func fetchDocumentExample(country: String, documentType: String) async -> URL? {
+        fetchDocumentExampleURL
+    }
 }
 
 @MainActor private final class MockDocumentSelectionRouter: ValidationRouter {
     private(set) var handleCancellationCalled = false
     private(set) var navigateToDocumentIntroCalled = false
+    private(set) var navigateToDocumentCaptureCalled = false
     private(set) var handleErrorCalled = false
 
     override func handleCancellation(loadingType: ResultLoadingType) {
@@ -467,6 +692,14 @@ private final class MockDocumentSelectionInteractor: @preconcurrency DocumentSel
 
     override func navigateToDocumentIntro() throws {
         navigateToDocumentIntroCalled = true
+    }
+
+    override func navigateToDocumentCapture(
+        validationId: String,
+        frontUploadUrl: String,
+        reverseUploadUrl: String?
+    ) throws {
+        navigateToDocumentCaptureCalled = true
     }
 
     override func handleError(_ error: TruoraException) {

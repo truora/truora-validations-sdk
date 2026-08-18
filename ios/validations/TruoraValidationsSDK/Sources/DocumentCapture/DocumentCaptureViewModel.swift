@@ -23,6 +23,7 @@ import TruoraCamera
     @Published var showHelpDialog: Bool = false
     @Published var showRotationAnimation: Bool = false
     @Published var showLoadingScreen: Bool = false
+    @Published var uploadState: UploadState = .none
 
     @Published var frontPhotoData: Data?
     @Published var frontPhotoStatus: CaptureStatus?
@@ -102,11 +103,12 @@ import TruoraCamera
     }
 
     func helpRequested() {
-        showHelpDialog = true
+        // Route through the presenter so its showHelpDialog becomes authoritative and autocapture pauses
+        Task { await presenter?.handleCaptureEvent(.helpRequested) }
     }
 
     func helpDismissed() {
-        showHelpDialog = false
+        Task { await presenter?.handleCaptureEvent(.helpDismissed) }
     }
 
     func cancelTapped() {
@@ -185,6 +187,7 @@ extension DocumentCaptureViewModel: DocumentCapturePresenterToView {
         showHelpDialog: Bool,
         showRotationAnimation: Bool,
         showLoadingScreen: Bool,
+        uploadState: UploadState,
         frontPhotoData: Data?,
         frontPhotoStatus: CaptureStatus?,
         backPhotoData: Data?,
@@ -198,6 +201,7 @@ extension DocumentCaptureViewModel: DocumentCapturePresenterToView {
         self.showHelpDialog = showHelpDialog
         self.showRotationAnimation = showRotationAnimation
         self.showLoadingScreen = showLoadingScreen
+        self.uploadState = uploadState
 
         if clearFrontPhoto {
             self.frontPhotoData = nil

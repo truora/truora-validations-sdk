@@ -196,6 +196,12 @@ private var invoicePickerDelegateKey: UInt8 = 0
         dismissFlow()
     }
 
+    /// Ends the flow with a completed (declined) result instead of surfacing an SDK error.
+    func finishWithCompletedResult(_ result: ValidationResult) {
+        ValidationConfig.shared.delegate?(.completed(result))
+        dismissFlow()
+    }
+
     func setEnrollmentTask(_ task: Task<Void, Error>?) {
         self.enrollmentTask = task
     }
@@ -880,7 +886,9 @@ final class InvoiceFilePickerDelegate: NSObject, UIDocumentPickerDelegate {
 
         let accessing = url.startAccessingSecurityScopedResource()
         defer {
-            if accessing { url.stopAccessingSecurityScopedResource() }
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
+            }
         }
 
         do {

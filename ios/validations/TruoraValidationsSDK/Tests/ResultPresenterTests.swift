@@ -328,22 +328,42 @@ import XCTest
         XCTAssertEqual(mockRouter.navigateToInvoiceFeedbackScenario, .documentNotRecognized)
     }
 
-    func testPollingCompleted_invoiceFailure_otherDeclinedReason_mapsToMissingText() async {
+    func testPollingCompleted_invoiceFailure_blurryImage_mapsToBlurryImage() async {
         let sut = createPresenter(loadingType: .invoice)
         let result = Self.invoiceFailureResult(remainingRetries: 1, declinedReason: "blurry_image")
 
         await sut.pollingCompleted(result: result)
 
-        XCTAssertEqual(mockRouter.navigateToInvoiceFeedbackScenario, .missingText)
+        XCTAssertEqual(mockRouter.navigateToInvoiceFeedbackScenario, .blurryImage)
     }
 
-    func testPollingCompleted_invoiceFailure_nilDeclinedReason_mapsToMissingText() async {
+    func testPollingCompleted_invoiceFailure_unknownDeclinedReason_fallsBackToDocumentNotFound() async {
+        let sut = createPresenter(loadingType: .invoice)
+        let result = Self.invoiceFailureResult(remainingRetries: 1, declinedReason: "totally_unknown_reason")
+
+        await sut.pollingCompleted(result: result)
+
+        XCTAssertEqual(mockRouter.navigateToInvoiceFeedbackScenario, .documentNotFound)
+    }
+
+    func testPollingCompleted_invoiceFailure_nonInvoiceScenario_fallsBackToDocumentNotFound() async {
+        // front/back/face scenarios belong to the document module and have no invoice UI,
+        // so they must fall back to .documentNotFound to avoid rendering a broken screen.
+        let sut = createPresenter(loadingType: .invoice)
+        let result = Self.invoiceFailureResult(remainingRetries: 1, declinedReason: "front_of_document_not_found")
+
+        await sut.pollingCompleted(result: result)
+
+        XCTAssertEqual(mockRouter.navigateToInvoiceFeedbackScenario, .documentNotFound)
+    }
+
+    func testPollingCompleted_invoiceFailure_nilDeclinedReason_fallsBackToDocumentNotFound() async {
         let sut = createPresenter(loadingType: .invoice)
         let result = Self.invoiceFailureResult(remainingRetries: 1, declinedReason: nil)
 
         await sut.pollingCompleted(result: result)
 
-        XCTAssertEqual(mockRouter.navigateToInvoiceFeedbackScenario, .missingText)
+        XCTAssertEqual(mockRouter.navigateToInvoiceFeedbackScenario, .documentNotFound)
     }
 
     func testPollingCompleted_invoiceFailure_declinedReasonCaseInsensitive() async {
@@ -554,7 +574,9 @@ private class MockResultInteractor: ResultPresenterToInteractor {
         navigateToInvoiceFeedbackRetriesLeft = retriesLeft
         navigateToInvoiceFeedbackRetryBehavior = retryBehavior
         navigateToInvoiceFeedbackCapturedImageData = capturedImageData
-        if let navigateToInvoiceFeedbackShouldThrow { throw navigateToInvoiceFeedbackShouldThrow }
+        if let navigateToInvoiceFeedbackShouldThrow {
+            throw navigateToInvoiceFeedbackShouldThrow
+        }
     }
 }
 

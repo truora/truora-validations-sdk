@@ -88,4 +88,44 @@ extension DocumentSelectionInteractor: DocumentSelectionPresenterToInteractor {
             ]
         )
     }
+
+    func createValidation(accountId: String) async throws -> NativeValidationCreateResponse {
+        guard let apiClient = ValidationConfig.shared.apiClient else {
+            throw TruoraException.sdk(SDKError(type: .invalidConfiguration, details: "API client not configured"))
+        }
+
+        let documentConfig = ValidationConfig.shared.documentConfig
+        let request = NativeValidationRequest(
+            type: NativeValidationTypeEnum.documentValidation.rawValue,
+            country: documentConfig.country.lowercased(),
+            accountId: accountId,
+            threshold: nil,
+            subvalidations: nil,
+            documentType: documentConfig.documentType,
+            timeout: documentConfig.timeout,
+            userAuthorized: true,
+            checkManualReviewAvailability: true
+        )
+
+        return try await apiClient.createValidation(request: request)
+    }
+
+    func fetchDocumentExample(country: String, documentType: String) async -> URL? {
+        guard let apiClient = ValidationConfig.shared.apiClient else { return nil }
+
+        do {
+            let response = try await apiClient.getDocumentSelection()
+            let matchedCountry = response.countries.first {
+                $0.country.lowercased() == country.lowercased()
+            }
+            let matchedDocType = matchedCountry?.documentTypes.first {
+                $0.documentType.lowercased() == documentType.lowercased()
+            }
+            guard let urlString = matchedDocType?.examples.first?.url else { return nil }
+            return URL(string: urlString)
+        } catch {
+            debugLog("⚠️ DocumentSelectionInteractor: Failed to fetch document example: \(error)")
+            return nil
+        }
+    }
 }

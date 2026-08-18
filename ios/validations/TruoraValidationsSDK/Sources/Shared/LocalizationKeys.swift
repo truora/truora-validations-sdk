@@ -46,6 +46,10 @@ enum LocalizationKeys {
     static let documentSelectionAcceptedDocuments = "document_selection_accepted_documents"
     static let documentSelectionContinue = "document_selection_continue"
     static let documentSelectionLoading = "document_selection_loading"
+    static let documentFixedSubtitle = "document_fixed_subtitle"
+    static let documentFirstSuggestion = "document_first_suggestion"
+    static let documentSecondSuggestion = "document_second_suggestion"
+    static let documentSelectionLockedTitleCoNationalId = "document_selection_locked_title_co_national_id"
 
     // MARK: - Document intro
 
@@ -53,11 +57,11 @@ enum LocalizationKeys {
     static let documentIntroSubtitle = "document_intro_subtitle"
     static let documentIntroSecurityTip = "document_intro_security_tip"
     static let documentIntroStartCapture = "document_intro_start_capture"
+    static let documentIntroStartCaptureCoNationalId = "document_intro_start_capture_co_national_id"
     static let documentIntroCreatingValidation = "document_intro_creating_validation"
 
     // MARK: - Document capture
 
-    static let documentCaptureProcessing = "document_capture_processing"
     static let documentCaptureRotateInstruction = "document_capture_rotate_instruction"
     static let documentCaptureFrontInstruction = "document_capture_front_instruction"
     static let documentCaptureBackInstruction = "document_capture_back_instruction"
@@ -116,6 +120,8 @@ enum LocalizationKeys {
     static let passiveCaptureFeedbackCenterFace = "passive_capture_feedback_center_face"
     static let passiveCaptureFeedbackLookForward = "passive_capture_feedback_look_forward"
     static let passiveCaptureFeedbackRecording = "passive_capture_feedback_recording"
+    static let passiveCaptureFeedbackMoveCloser = "passive_capture_feedback_move_closer"
+    static let passiveCaptureFeedbackMoveBack = "passive_capture_feedback_move_back"
     static let passiveCaptureTip1 = "passive_capture_tip_1"
     static let passiveCaptureTip2 = "passive_capture_tip_2"
     static let passiveCaptureTip3 = "passive_capture_tip_3"
@@ -123,6 +129,8 @@ enum LocalizationKeys {
     static let passiveCaptureTipsTitle = "passive_capture_tips_title"
     static let passiveCaptureManualRecording = "passive_capture_manual_recording"
     static let passiveCaptureTryAgain = "passive_capture_try_again"
+    static let passiveCaptureUploadingTitle = "passive_capture_uploading_title"
+    static let passiveCaptureReadyTitle = "passive_capture_ready_title"
 
     // MARK: - Document autocapture loading
 
@@ -247,6 +255,12 @@ enum LocalizationKeys {
     static let invoiceFeedbackTipGlareMx = "invoice_feedback_tip_glare_mx"
     static let invoiceFeedbackTipGlareCo = "invoice_feedback_tip_glare_co"
     static let invoiceFeedbackTipAngle = "invoice_feedback_tip_angle"
+    static let invoiceFeedbackBlurryTitle = "invoice_feedback_blurry_title"
+    static let invoiceFeedbackBlurryDesc = "invoice_feedback_blurry_desc"
+    static let invoiceFeedbackGlareTitle = "invoice_feedback_glare_title"
+    static let invoiceFeedbackGlareDesc = "invoice_feedback_glare_desc"
+    static let invoiceFeedbackDefaultTitle = "invoice_feedback_default_title"
+    static let invoiceFeedbackDefaultDesc = "invoice_feedback_default_desc"
 
     // MARK: - Document descriptions (by country/type)
 
@@ -262,4 +276,13 @@ enum LocalizationKeys {
     static let descClForeignId = "desc_cl_foreign_id"
     static let descClPassport = "desc_cl_passport"
     static let descSvKeepHand = "desc_sv_keep_hand"
+
+    // MARK: - Authorization (enter_authorization step)
+
+    static let authorizationTitle = "authorization_title"
+    static let authorizationAccept = "authorization_accept"
+    static let authorizationDataPolicyText = "authorization_data_policy_text"
+    static let authorizationDataPolicyLink = "authorization_data_policy_link"
+    static let authorizationRequiredFieldsError = "authorization_required_fields_error"
+    static let authorizationSecurityTip = "authorization_security_tip"
 }

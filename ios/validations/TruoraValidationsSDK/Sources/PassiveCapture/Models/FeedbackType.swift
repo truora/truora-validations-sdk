@@ -15,5 +15,21 @@ enum FeedbackType: Hashable {
     case hiddenFace
     case centerFace
     case lookForward
-    case recording
+    case moveCloser
+    case moveBack
+
+    /// Telemetry key for this hint. `none` maps to "SHOW_FACE" since it carries no guidance.
+    var telemetryKey: String {
+        switch self {
+        case .none: "SHOW_FACE"
+        case .showFace: "SHOW_FACE"
+        case .centerFace: "CENTER_FACE"
+        case .moveCloser: "MOVE_CLOSER"
+        case .moveBack: "MOVE_BACK"
+        case .lookForward: "LOOK_FORWARD"
+        case .multiplePeople: "MULTIPLE_PEOPLE"
+        case .hiddenFace: "HIDDEN_FACE"
+        case .removeGlasses: "REMOVE_GLASSES"
+        }
+    }
 }

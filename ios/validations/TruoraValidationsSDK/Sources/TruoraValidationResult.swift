@@ -47,37 +47,49 @@ extension TruoraValidationResult: CustomStringConvertible {
 public extension TruoraValidationResult {
     /// Returns true if the result is a completion
     var isCompleted: Bool {
-        if case .completed = self { return true }
+        if case .completed = self {
+            return true
+        }
         return false
     }
 
     /// Returns true if the result is an error
     var isError: Bool {
-        if case .error = self { return true }
+        if case .error = self {
+            return true
+        }
         return false
     }
 
     /// Returns true if the result is a cancellation
     var isCanceled: Bool {
-        if case .canceled = self { return true }
+        if case .canceled = self {
+            return true
+        }
         return false
     }
 
     /// Extracts the completion value if available
     var completionValue: T? {
-        if case .completed(let value) = self { return value }
+        if case .completed(let value) = self {
+            return value
+        }
         return nil
     }
 
     /// Extracts the exception if this is an error
     var exception: TruoraException? {
-        if case .error(let error) = self { return error }
+        if case .error(let error) = self {
+            return error
+        }
         return nil
     }
 
     /// Extracts the partial validation result if this is a cancellation
     var canceledValue: T? {
-        if case .canceled(let value) = self { return value }
+        if case .canceled(let value) = self {
+            return value
+        }
         return nil
     }
 }

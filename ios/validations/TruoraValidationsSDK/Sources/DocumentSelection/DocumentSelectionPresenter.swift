@@ -33,6 +33,7 @@ final class DocumentSelectionPresenter {
 
     private var isCameraAuthorized: Bool = false
     private let cameraPermissionChecker: CameraPermissionChecking
+    private var isSelectionFixed: Bool = false
 
     init(
         view: DocumentSelectionPresenterToView,
@@ -126,6 +127,37 @@ extension DocumentSelectionPresenter: DocumentSelectionViewToPresenter {
         }
 
         await view?.updateSelection(selectedCountry: selectedCountry, selectedDocument: selectedDocument)
+
+        if let country = selectedCountry, let document = selectedDocument,
+           isDocumentLocked() {
+            isSelectionFixed = true
+            await view?.setSelectionFixed(true)
+
+            let url = await interactor?.fetchDocumentExample(
+                country: country.rawValue,
+                documentType: document.rawValue
+            )
+            if let url {
+                await view?.setDocumentImageState(.loaded(url))
+            } else {
+                await view?.setDocumentImageState(.unavailable)
+            }
+        }
+    }
+
+    private func isDocumentLocked() -> Bool {
+        let documentConfig = ValidationConfig.shared.documentConfig
+        if documentConfig.effectivePreselectedDocumentType != nil {
+            return true
+        }
+        guard let country = selectedCountry else { return false }
+        let allowedDocTypes = documentConfig.allowedDocumentTypesList
+        let available: [NativeDocumentType] = allowedDocTypes.isEmpty
+            ? country.documentTypes
+            : country.documentTypes.filter { docType in
+                allowedDocTypes.contains { $0.lowercased() == docType.rawValue }
+            }
+        return available.count == 1
     }
 
     private func checkForSingleAvailableDocumentType() async {
@@ -198,10 +230,53 @@ extension DocumentSelectionPresenter: DocumentSelectionViewToPresenter {
 
         do {
             try ValidationConfig.shared.setValidation(.document(documentConfig))
-            try await router.navigateToDocumentIntro()
+
+            if isSelectionFixed {
+                await navigateToCaptureDirect(router: router)
+            } else {
+                try await router.navigateToDocumentIntro()
+            }
         } catch {
             // Routing error is not recoverable from here; surface actionable alert anyway.
             await view?.displayCameraPermissionAlert()
+        }
+    }
+
+    private func navigateToCaptureDirect(router: ValidationRouter) async {
+        guard let accountId = ValidationConfig.shared.accountId else {
+            await router.handleError(.sdk(SDKError(type: .invalidConfiguration, details: "Missing account ID")))
+            return
+        }
+
+        await view?.setLoading(true)
+        do {
+            guard let response = try await interactor?.createValidation(accountId: accountId) else {
+                await view?.setLoading(false)
+                return
+            }
+
+            let validationId = response.validationId
+            ValidationConfig.shared.updateValidationId(validationId)
+
+            guard let frontUploadUrl = response.instructions?.frontUrl,
+                  !frontUploadUrl.isEmpty else {
+                await view?.setLoading(false)
+                await router.handleError(.sdk(SDKError(type: .internalError, details: "Missing front upload URL")))
+                return
+            }
+
+            await view?.setLoading(false)
+            try await router.navigateToDocumentCapture(
+                validationId: validationId,
+                frontUploadUrl: frontUploadUrl,
+                reverseUploadUrl: response.instructions?.reverseUrl
+            )
+        } catch {
+            await view?.setLoading(false)
+            await router.handleError(
+                error as? TruoraException
+                    ?? .network(message: "Validation creation failed: \(error.localizedDescription)")
+            )
         }
     }
 

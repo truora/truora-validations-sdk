@@ -25,8 +25,15 @@ final class ValidationConfig: ObservableObject {
     private(set) var documentConfig: Document
     private(set) var invoiceConfig: Invoice
     private(set) var detectionReporter: DetectionReporter?
+    private var attestationProvider: (any AttestationProviding)?
+    private var attestationTask: Task<Void, Never>?
     private let logoDownloader: LogoDownloading
     private var logoDownloadTask: Task<Void, Never>?
+    /// Serialises `initializeDetectionReporter(flowType:)` so concurrent callers
+    /// from different threads cannot both pass the `attestationProvider == nil`
+    /// idempotency guard and leak a second provider. Lightweight — only held for
+    /// the duration of the guard + assignment, no async/Keychain work inside.
+    private let initializationLock = NSLock()
 
     private init(logoDownloader: LogoDownloading = LogoDownloader()) {
         self.logoDownloader = logoDownloader
@@ -39,6 +46,16 @@ final class ValidationConfig: ObservableObject {
     deinit {
         logoDownloadTask?.cancel()
         logoDownloadTask = nil
+        attestationTask?.cancel()
+        attestationTask = nil
+        // B3-6: In SwiftUI lifecycle changes ValidationConfig may dealloc without reset() being
+        // called. Capture the provider locally before niling it, then shut it down in a Task
+        // so the async call completes even though we are already in deinit.
+        let providerToShutdown = attestationProvider
+        attestationProvider = nil
+        if let provider = providerToShutdown {
+            Task { await provider.shutdown() }
+        }
     }
 
     /// Creates a ValidationConfig instance for testing with a custom logo downloader.
@@ -182,19 +199,84 @@ final class ValidationConfig: ObservableObject {
     /// Creates and stores a DetectionReporter for injection detection reporting.
     /// Called once per validation flow at the entry point.
     ///
+    /// Idempotent and thread-safe: if a provider is already initialised (e.g. called twice
+    /// in quick succession from different threads), the existing provider is kept and this
+    /// call is a no-op. The check-and-set is serialised with `initializationLock` so two
+    /// concurrent callers cannot both pass the guard and leak a second provider (B-cycle2).
+    ///
+    /// Constructs an `AppAttestProvider` when running on iOS 14+ with a supported
+    /// device (App Attest). Falls back to `NoOpAttestationProvider(reason: .unsupported)`
+    /// on older OS versions or when the factory returns nil. The provider warm-up
+    /// runs in the background and does not block SDK initialisation.
+    ///
     /// - Parameter flowType: The flow type for this session ("face" or "document").
     func initializeDetectionReporter(flowType: String) {
-        guard let logger = try? TruoraLoggerImplementation.shared else {
+        // Serialise the check-and-set so concurrent callers cannot both pass the guard.
+        // Held only across the in-memory mutation; no async/Keychain work runs under the lock.
+        initializationLock.lock()
+        guard attestationProvider == nil else {
+            initializationLock.unlock()
             return
         }
+
+        guard let logger = try? TruoraLoggerImplementation.shared else {
+            initializationLock.unlock()
+            return
+        }
+
+        // Build the attestation provider. The factory is gated by #available(iOS 14.0,*)
+        // inside AppAttestProvider.create(); on iOS 13 it returns nil.
+        // B3-7: Log provider selection so production issues are debuggable.
+        let attestation: any AttestationProviding
+        let providerName: String
+        let providerReason: String
+        if #available(iOS 14.0, *), let provider = AppAttestProvider.create(logger: logger) {
+            attestation = provider
+            providerName = "AppAttestProvider"
+            providerReason = "ios14_supported"
+        } else {
+            attestation = NoOpAttestationProvider(reason: .unsupported)
+            providerName = "NoOpAttestationProvider"
+            providerReason = "ios14_unavailable_or_unsupported"
+        }
+
+        // Fire-and-forget warm-up; does not block SDK initialisation.
+        attestationTask = Task { await attestation.start() }
+        attestationProvider = attestation
+
         let detector = InjectionDetector()
         let bridge = NativeDetectionBridge.create()
-        detectionReporter = detector.createReporter(logger: logger, flowType: flowType, bridge: bridge)
+        detectionReporter = detector.createReporter(
+            logger: logger,
+            flowType: flowType,
+            bridge: bridge,
+            attestation: attestation
+        )
+        initializationLock.unlock()
+
+        // Log provider selection AFTER releasing the lock so the async hop does
+        // not pin the lock during a Task launch.
+        Task { [logger, providerName, providerReason] in
+            await logger.logDevice(
+                eventName: "injection_attestation_provider_selected",
+                level: .info,
+                retention: .oneWeek,
+                metadata: [
+                    "provider": providerName,
+                    "reason": providerReason
+                ]
+            )
+        }
     }
 
     func reset() {
         logoDownloadTask?.cancel()
         logoDownloadTask = nil
+        attestationTask?.cancel()
+        attestationTask = nil
+        let providerToShutdown = attestationProvider
+        attestationProvider = nil
+        Task { await providerToShutdown?.shutdown() }
         apiClient = nil
         delegate = nil
         accountId = nil

@@ -12,12 +12,12 @@ import Foundation
 private class BundleFinder {}
 extension Foundation.Bundle {
 /// Since SampleApp is a application, the bundle for classes within this module can be used directly.
-    static let module = Bundle(for: BundleFinder.self)
+    nonisolated static let module = Bundle(for: BundleFinder.self)
 }
 // MARK: - Objective-C Bundle Accessor
 @objc
 public final class SampleAppResources: NSObject {
-@objc public class var bundle: Bundle {
+@objc public nonisolated class var bundle: Bundle {
     return .module
 }
 }

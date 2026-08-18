@@ -155,7 +155,7 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let documentAutocaptureLoadingVerifying = TruoraValidationsSDKStrings.tr("Localizable", "document_autocapture_loading_verifying")
   /// We are verifying the information\nThis may take a few seconds
   public static let documentAutocaptureLoadingVerifyingDescription = TruoraValidationsSDKStrings.tr("Localizable", "document_autocapture_loading_verifying_description")
-  /// Place the back of your document
+  /// Place the back of the document inside the frame
   public static let documentCaptureBackInstruction = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_back_instruction")
   /// Back
   public static let documentCaptureBackLabel = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_back_label")
@@ -175,9 +175,9 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let documentCaptureFeedbackLocate = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_feedback_locate")
   /// Only one document allowed
   public static let documentCaptureFeedbackMultiple = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_feedback_multiple")
-  /// Rotate your document
+  /// Turn the document over
   public static let documentCaptureFeedbackRotate = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_feedback_rotate")
-  /// Place the front of your document
+  /// Place the front of the document inside the frame
   public static let documentCaptureFrontInstruction = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_front_instruction")
   /// Front
   public static let documentCaptureFrontLabel = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_front_label")
@@ -199,11 +199,9 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let documentCaptureHold = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_hold")
   /// Take picture manually
   public static let documentCaptureManualButton = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_manual_button")
-  /// Processing...
-  public static let documentCaptureProcessing = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_processing")
-  /// Turn your document over
+  /// Turn the document over to scan the back
   public static let documentCaptureRotateInstruction = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_rotate_instruction")
-  /// Scanning...
+  /// Don't move!\nScanning...
   public static let documentCaptureScanning = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_scanning")
   /// Position your document
   public static let documentCaptureScanningManual = TruoraValidationsSDKStrings.tr("Localizable", "document_capture_scanning_manual")
@@ -243,16 +241,24 @@ public enum TruoraValidationsSDKStrings: Sendable {
   }
   /// Take another photo
   public static let documentFeedbackRetry = TruoraValidationsSDKStrings.tr("Localizable", "document_feedback_retry")
+  /// Have your physical document on hand
+  public static let documentFirstSuggestion = TruoraValidationsSDKStrings.tr("Localizable", "document_first_suggestion")
+  /// Before scanning:
+  public static let documentFixedSubtitle = TruoraValidationsSDKStrings.tr("Localizable", "document_fixed_subtitle")
   /// Creating validation...
   public static let documentIntroCreatingValidation = TruoraValidationsSDKStrings.tr("Localizable", "document_intro_creating_validation")
   /// Your information is protected.
   public static let documentIntroSecurityTip = TruoraValidationsSDKStrings.tr("Localizable", "document_intro_security_tip")
   /// Scan document
   public static let documentIntroStartCapture = TruoraValidationsSDKStrings.tr("Localizable", "document_intro_start_capture")
+  /// Scan ID
+  public static let documentIntroStartCaptureCoNationalId = TruoraValidationsSDKStrings.tr("Localizable", "document_intro_start_capture_co_national_id")
   /// Don't move, the document will be scanned automatically.
   public static let documentIntroSubtitle = TruoraValidationsSDKStrings.tr("Localizable", "document_intro_subtitle")
   /// Prepare to scan your identity document
   public static let documentIntroTitle = TruoraValidationsSDKStrings.tr("Localizable", "document_intro_title")
+  /// Clean your device's camera
+  public static let documentSecondSuggestion = TruoraValidationsSDKStrings.tr("Localizable", "document_second_suggestion")
   /// Accepted documents:
   public static let documentSelectionAcceptedDocuments = TruoraValidationsSDKStrings.tr("Localizable", "document_selection_accepted_documents")
   /// Continue
@@ -271,8 +277,10 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let documentSelectionDocumentPlaceholder = TruoraValidationsSDKStrings.tr("Localizable", "document_selection_document_placeholder")
   /// Loading...
   public static let documentSelectionLoading = TruoraValidationsSDKStrings.tr("Localizable", "document_selection_loading")
-  /// Prepare this document
+  /// Prepare your document
   public static let documentSelectionLockedTitle = TruoraValidationsSDKStrings.tr("Localizable", "document_selection_locked_title")
+  /// Prepare your ID
+  public static let documentSelectionLockedTitleCoNationalId = TruoraValidationsSDKStrings.tr("Localizable", "document_selection_locked_title_co_national_id")
   /// Choose your document type
   public static let documentSelectionTitle = TruoraValidationsSDKStrings.tr("Localizable", "document_selection_title")
   /// Driver License
@@ -311,6 +319,10 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let passiveCaptureFeedbackHiddenFace = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_hidden_face")
   /// Look at the camera
   public static let passiveCaptureFeedbackLookForward = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_look_forward")
+  /// Move back
+  public static let passiveCaptureFeedbackMoveBack = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_move_back")
+  /// Move closer
+  public static let passiveCaptureFeedbackMoveCloser = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_move_closer")
   /// Avoid appearing with anyone else
   public static let passiveCaptureFeedbackMultiplePeople = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_feedback_multiple_people")
   /// Don't move!\nRecording
@@ -325,6 +337,8 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let passiveCaptureLoadingTitle = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_loading_title")
   /// Record video manually
   public static let passiveCaptureManualRecording = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_manual_recording")
+  /// Done!
+  public static let passiveCaptureReadyTitle = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_ready_title")
   /// record video
   public static let passiveCaptureRecordVideo = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_record_video")
   /// Get ready!\nwe will record your face in
@@ -341,6 +355,8 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let passiveCaptureTipsTitle = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_tips_title")
   /// Try again
   public static let passiveCaptureTryAgain = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_try_again")
+  /// Loading…
+  public static let passiveCaptureUploadingTitle = TruoraValidationsSDKStrings.tr("Localizable", "passive_capture_uploading_title")
   /// Your information is secured.
   public static let passiveInstructionsSecurityTip = TruoraValidationsSDKStrings.tr("Localizable", "passive_instructions_security_tip")
   /// Start verification

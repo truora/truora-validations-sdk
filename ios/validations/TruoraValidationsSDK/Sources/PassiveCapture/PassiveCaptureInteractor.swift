@@ -7,6 +7,20 @@
 
 import Foundation
 
+// MARK: - Telemetry Enums
+
+enum FaceCaptureMode: String {
+    case auto
+    case manual
+}
+
+enum FaceVideoManualTriggerReason: String {
+    case qualityGateTimeout = "quality_gate_timeout"
+    case clientWithoutAutocapture = "client_without_autocapture"
+}
+
+// MARK: - Interactor
+
 class PassiveCaptureInteractor {
     weak var presenter: PassiveCaptureInteractorToPresenter?
     let validationId: String
@@ -49,7 +63,9 @@ extension PassiveCaptureInteractor: PassiveCapturePresenterToInteractor {
         }
 
         #if DEBUG
-        if handleOfflineMode() { return }
+        if handleOfflineMode() {
+            return
+        }
         #endif
 
         let validated = validateUploadPreconditions(
@@ -186,6 +202,78 @@ extension PassiveCaptureInteractor: PassiveCapturePresenterToInteractor {
                 "validation_type": Self.validationType,
                 "validation_id": validationId
             ]
+        )
+    }
+
+    func logFaceQualityGatePassed(timeToReadyMs: Int) async {
+        await logger.logML(
+            eventName: "face_quality_gate_passed",
+            level: .info,
+            errorMessage: nil,
+            retention: .oneWeek,
+            metadata: [
+                "screen_name": "PassiveLiveness",
+                "validation_type": "passive",
+                "face_capture_mode": FaceCaptureMode.auto.rawValue,
+                "time_to_ready_ms": timeToReadyMs
+            ]
+        )
+    }
+
+    func logFaceQualityGateTimeout(lastHint: String) async {
+        await logger.logML(
+            eventName: "face_quality_gate_timeout",
+            level: .info,
+            errorMessage: nil,
+            retention: .oneWeek,
+            metadata: [
+                "screen_name": "PassiveLiveness",
+                "validation_type": "passive",
+                "last_hint": lastHint,
+                "timeout_duration_seconds": Int(PassiveCapturePresenter.manualTimeoutSeconds)
+            ]
+        )
+    }
+
+    func logFaceVideoManualModeForced(triggerReason: FaceVideoManualTriggerReason) async {
+        await logger.logML(
+            eventName: "face_video_manual_mode_forced",
+            level: .info,
+            errorMessage: nil,
+            retention: .oneWeek,
+            metadata: [
+                "screen_name": "PassiveLiveness",
+                "validation_type": "passive",
+                "trigger_reason": triggerReason.rawValue,
+                "face_capture_mode": FaceCaptureMode.manual.rawValue
+            ]
+        )
+    }
+
+    func logFaceQualitySessionSummary(
+        totalDurationMs: Int,
+        hintDurationsMs: [String: Int],
+        dominantHint: String,
+        dominantHintPercent: Int,
+        autocaptureFired: Bool
+    ) async {
+        var metadata: [String: Any] = [
+            "screen_name": "PassiveLiveness",
+            "validation_type": "passive",
+            "total_duration_ms": totalDurationMs,
+            "dominant_hint": dominantHint,
+            "dominant_hint_percent": dominantHintPercent,
+            "autocapture_fired": autocaptureFired
+        ]
+        for (key, value) in hintDurationsMs {
+            metadata["hint_\(key.lowercased())_ms"] = value
+        }
+        await logger.logML(
+            eventName: "face_quality_session_summary",
+            level: .info,
+            errorMessage: nil,
+            retention: .oneWeek,
+            metadata: metadata
         )
     }
 }
