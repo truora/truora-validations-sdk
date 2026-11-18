@@ -23,6 +23,7 @@ import UIKit
     @Published var uploadState: UploadState = .none
     @Published var errorMessage: String?
     @Published var showError = false
+    @Published var isErrorRetryable = false
 
     /// Tracks if a recording is currently in progress to prevent multiple clicks
     @Published var isRecordingInProgress: Bool = false
@@ -94,8 +95,8 @@ import UIKit
         Task { await presenter?.detectionsReceived(results) }
     }
 
-    func cameraError(_ errorMessage: String) {
-        Task { await presenter?.cameraError(errorMessage) }
+    func cameraError(_ error: CameraError) {
+        Task { await presenter?.cameraError(error) }
     }
 }
 
@@ -204,8 +205,17 @@ extension PassiveCaptureViewModel: PassiveCapturePresenterToView {
     }
 
     func showError(_ message: String) {
-        self.errorMessage = message
-        self.showError = true
+        present(message, retryable: false)
+    }
+
+    func showRetryableError(_ message: String) {
+        present(message, retryable: true)
+    }
+
+    private func present(_ message: String, retryable: Bool) {
+        errorMessage = message
+        isErrorRetryable = retryable
+        showError = true
     }
 
     func resetRecordingInProgress() {

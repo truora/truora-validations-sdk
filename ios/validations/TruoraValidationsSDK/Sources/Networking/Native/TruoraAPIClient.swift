@@ -76,11 +76,14 @@ public class TruoraAPIClient {
         let (data, response) = try await sessionConfig.perform(urlRequest, using: session)
         try validateResponse(response, data: data)
 
+        let decoded: NativeValidationCreateResponse
         do {
-            return try JSONDecoder().decode(NativeValidationCreateResponse.self, from: data)
+            decoded = try JSONDecoder().decode(NativeValidationCreateResponse.self, from: data)
         } catch {
             throw TruoraAPIError.decodingError(error)
         }
+        ServerClock.sync(withCreationDate: decoded.creationDate)
+        return decoded
     }
 
     func getValidation(validationId: String) async throws -> NativeValidationDetailResponse {
@@ -158,7 +161,13 @@ public class TruoraAPIClient {
         urlRequest.addValue(contentType, forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = fileData
 
-        let (data, response) = try await sessionConfig.perform(urlRequest, using: session)
+        let sessionConfig = sessionConfig
+        let session = session
+        let request = urlRequest
+        // Bounds the whole upload, retries and connectivity waits included.
+        let (data, response) = try await withUploadDeadline(UploadTimeoutPolicy.totalBudget) {
+            try await sessionConfig.perform(request, using: session)
+        }
         try validateResponse(response, data: data)
     }
 

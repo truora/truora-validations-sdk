@@ -70,6 +70,16 @@ import XCTest
         try await super.tearDown()
     }
 
+    // MARK: - Dismiss Flow Tests
+
+    func testDismissFlow_clearsTheValidationIdForTheNextFlow() {
+        ValidationConfig.shared.updateValidationId("dummy-validation-id")
+
+        router.dismissFlow()
+
+        XCTAssertNil(ValidationConfig.shared.validationId)
+    }
+
     // MARK: - Navigate to Passive Capture Tests
 
     func testNavigateToPassiveCaptureWithValidData() async throws {

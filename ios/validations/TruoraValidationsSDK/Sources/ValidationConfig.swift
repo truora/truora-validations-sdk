@@ -196,6 +196,10 @@ final class ValidationConfig: ObservableObject {
         }
     }
 
+    func clearValidationId() {
+        validationId = nil
+    }
+
     /// Creates and stores a DetectionReporter for injection detection reporting.
     /// Called once per validation flow at the entry point.
     ///

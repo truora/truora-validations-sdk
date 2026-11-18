@@ -117,6 +117,17 @@ import XCTest
         XCTAssertNil(ValidationConfig.shared.enrollmentData)
     }
 
+    func testClearValidationId_keepsTheRestOfTheConfiguration() async throws {
+        try await ValidationConfig.shared.configure(apiKey: "test-api-key", accountId: "test-account-id")
+        ValidationConfig.shared.updateValidationId("dummy-validation-id")
+
+        ValidationConfig.shared.clearValidationId()
+
+        XCTAssertNil(ValidationConfig.shared.validationId)
+        XCTAssertEqual(ValidationConfig.shared.accountId, "test-account-id")
+        XCTAssertNotNil(ValidationConfig.shared.apiClient)
+    }
+
     func testConfigureWithDelegateStoresDelegate() async throws {
         // Given
         let apiKey = "test-api-key"

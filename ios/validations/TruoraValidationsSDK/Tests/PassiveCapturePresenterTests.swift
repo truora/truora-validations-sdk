@@ -135,6 +135,7 @@ import XCTest
 
     func testSuspendResume_whileRecording_autocapture_restartsAtDetection() async {
         // Given
+        await sut.cameraReady()
         await sut.handleCaptureEvent(.recordVideoRequested)
         mockView.pauseVideoCalled = false
         mockView.pauseCameraCalled = false
@@ -177,6 +178,7 @@ import XCTest
         )
         sut = presenter
 
+        await sut.cameraReady()
         await sut.handleCaptureEvent(.recordVideoRequested)
         mockView.stopCameraCalled = false
         mockView.setupCameraCalled = false
@@ -203,6 +205,7 @@ import XCTest
 
     func testHelpWhileRecording_autocapture_stopsAndRestartsAtDetection() async {
         // Given
+        await sut.cameraReady()
         await sut.handleCaptureEvent(.recordVideoRequested)
         mockView.pauseVideoCalled = false
         mockView.startRecordingCalled = false
@@ -238,6 +241,361 @@ import XCTest
         // Then
         XCTAssertFalse(mockView.stopCameraCalled, "Should not stop camera during upload backgrounding")
         XCTAssertFalse(mockView.resumeCameraCalled, "Should not resume camera during upload")
+    }
+
+    func testResignAndBecomeActive_whileCameraStarting_leavesSetupUntouched() async {
+        await sut.viewDidLoad()
+        mockView.pauseCameraCalled = false
+
+        await sut.appWillResignActive()
+        await sut.appDidBecomeActive()
+
+        XCTAssertFalse(mockView.pauseCameraCalled, "Should not pause a camera that is still starting")
+        XCTAssertFalse(mockView.resumeCameraCalled, "Should not resume a camera that was never paused")
+        XCTAssertEqual(mockView.setupCameraCount, 1, "Should not trigger a second setup")
+    }
+
+    func testCameraError_whileRecording_returnsToManualWithoutStoppingRecording() async {
+        await sut.cameraReady()
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        await sut.cameraError(.internalError("Error unable to record video"))
+        await sut.handleCaptureEvent(.recordingCompleted)
+
+        XCTAssertFalse(mockView.stopRecordingCalled, "Should not stop a recording that already failed")
+        XCTAssertEqual(mockView.lastState as? PassiveCaptureState, .manual)
+        XCTAssertEqual(mockView.lastIsActivelyRecording, false)
+        XCTAssertEqual(
+            mockView.lastErrorMessage,
+            TruoraLocalization.string(forKey: LocalizationKeys.cameraErrorRecordingFailed),
+            "Should show a localized message and keep the technical detail out of the alert"
+        )
+    }
+
+    func testCameraSetupFailed_showsRetryableErrorAndRetriesWhenDismissed() async {
+        await sut.viewDidLoad()
+
+        await sut.cameraError(.internalError("Camera session failed to start"))
+        await sut.handleCaptureEvent(.errorDismissed)
+
+        XCTAssertTrue(mockView.stopCameraCalled, "Should tear down the failed session")
+        XCTAssertEqual(mockView.retryableErrorCount, 1)
+        XCTAssertFalse(mockView.showErrorCalled, "Should not show the technical error")
+        XCTAssertEqual(mockView.setupCameraCount, 2, "Should set up the camera again")
+        XCTAssertFalse(mockRouter.handleErrorCalled)
+    }
+
+    func testCameraSetupFailed_afterTwoRetries_endsFlowWithoutAlert() async {
+        await sut.viewDidLoad()
+        for _ in 0 ..< 3 {
+            await sut.cameraError(.internalError("Camera session failed to start"))
+            await sut.handleCaptureEvent(.errorDismissed)
+        }
+
+        XCTAssertTrue(mockRouter.handleErrorCalled, "Should end the flow on the third failure")
+        XCTAssertEqual(mockView.retryableErrorCount, 2, "Should not show an alert when ending the flow")
+        XCTAssertEqual(mockView.setupCameraCount, 3, "Should retry only twice")
+    }
+
+    func testCameraError_sessionNotRunningOnRecord_restartsCameraWhenDismissed() async {
+        await sut.cameraReady()
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        await sut.cameraError(.captureSessionError(reason: "Session is not running"))
+        await sut.handleCaptureEvent(.errorDismissed)
+
+        XCTAssertTrue(mockView.stopCameraCalled, "Should tear down the stopped session")
+        XCTAssertEqual(mockView.retryableErrorCount, 1)
+        XCTAssertFalse(mockView.showErrorCalled, "Should not show the technical error")
+        XCTAssertEqual(mockView.setupCameraCount, 1, "Should set up the camera again")
+    }
+
+    func testCameraError_sessionNotReadyOnRecord_returnsToManualWithoutAlert() async {
+        await sut.cameraReady()
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        await sut.cameraError(.sessionNotReady)
+
+        XCTAssertFalse(mockView.showErrorCalled, "Should not show a technical alert")
+        XCTAssertEqual(mockView.retryableErrorCount, 0, "Should not show the retry alert")
+        XCTAssertFalse(mockView.stopCameraCalled, "Should not tear the camera down")
+        XCTAssertEqual(mockView.lastState as? PassiveCaptureState, .manual)
+        XCTAssertEqual(mockView.lastIsActivelyRecording, false)
+    }
+
+    func testCameraError_sessionNotRunningOnRecord_hidesRecordButtonWhileRestarting() async {
+        await sut.cameraReady()
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        await sut.cameraError(.captureSessionError(reason: "Session is not running"))
+
+        XCTAssertEqual(mockView.lastState as? PassiveCaptureState, .countdown, "Should leave manual mode")
+        XCTAssertEqual(mockView.lastIsActivelyRecording, false)
+    }
+
+    func testAppBecomesActive_whileRetryAlertIsOpen_waitsForDismissal() async {
+        await sut.viewDidLoad()
+        await sut.cameraError(.internalError("Camera session failed to start"))
+
+        await sut.appWillResignActive()
+        await sut.appDidBecomeActive()
+        XCTAssertEqual(mockView.setupCameraCount, 1, "Should not restart the camera behind the alert")
+
+        await sut.handleCaptureEvent(.errorDismissed)
+        XCTAssertEqual(mockView.setupCameraCount, 2, "Should restart once the alert is dismissed")
+    }
+
+    func testViewWillAppear_whileRetryAlertIsOpen_waitsForDismissal() async {
+        for status in [AVAuthorizationStatus.authorized, .notDetermined] {
+            let view = MockPassiveCaptureView()
+            let presenter = PassiveCapturePresenter(
+                view: view,
+                interactor: mockInteractor,
+                router: mockRouter,
+                validationId: "test-validation-id",
+                timeProvider: mockTimeProvider,
+                cameraAuthorizationStatus: { status }
+            )
+            await presenter.viewDidLoad()
+            await presenter.cameraError(.internalError("Camera session failed to start"))
+
+            await presenter.viewWillAppear()
+
+            XCTAssertEqual(view.setupCameraCount, 1, "Should wait for the alert (status \(status.rawValue))")
+        }
+    }
+
+    func testRecordVideoRequested_afterUploadFailed_isIgnored() async {
+        await sut.cameraReady()
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        await sut.videoUploadFailed(TruoraException.network(message: "Upload server unreachable"), level: .warning)
+
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        XCTAssertFalse(mockView.startRecordingCalled, "Should not record on a camera that was stopped")
+    }
+
+    func testRecordVideoRequested_whileRecording_keepsButtonDisabled() async {
+        await sut.cameraReady()
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        XCTAssertEqual(mockView.startRecordingCount, 1, "Should not start a second recording")
+        XCTAssertEqual(mockView.resetRecordingInProgressCount, 0, "Should not re-enable the button mid-recording")
+    }
+
+    func testRecordVideoRequested_beforeCameraReady_isIgnored() async {
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        XCTAssertFalse(mockView.startRecordingCalled, "Should not record before the camera is ready")
+    }
+
+    func testCameraError_afterUploadFailed_showsNoAlertAndDoesNotReopenCamera() async {
+        await sut.cameraReady()
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        await sut.videoUploadFailed(TruoraException.network(message: "Upload server unreachable"), level: .warning)
+
+        await sut.cameraError(.captureSessionError(reason: "Session is not running"))
+
+        XCTAssertFalse(mockView.showErrorCalled, "Should not show an alert over a finished flow")
+        XCTAssertEqual(mockView.retryableErrorCount, 0)
+        XCTAssertEqual(mockView.setupCameraCount, 0, "Should not reopen the camera behind a finished flow")
+    }
+
+    func testAppDidBecomeActive_afterUploadFailed_doesNotReopenCamera() async {
+        await sut.cameraReady()
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        await sut.videoUploadFailed(TruoraException.network(message: "Upload server unreachable"), level: .warning)
+
+        await sut.appDidBecomeActive()
+
+        XCTAssertEqual(mockView.setupCameraCount, 0, "Should not reopen the camera after the flow ended")
+    }
+
+    func testCameraReady_afterUploadFailed_stopsCamera() async {
+        await sut.cameraReady()
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        await sut.videoUploadFailed(TruoraException.network(message: "Upload server unreachable"), level: .warning)
+        mockView.stopCameraCalled = false
+
+        await sut.cameraReady()
+
+        XCTAssertTrue(mockView.stopCameraCalled, "Should stop a camera that becomes ready after the upload failed")
+    }
+
+    func testVideoRecordingCompleted_afterUploadFailed_doesNotUploadAgain() async {
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        await sut.videoUploadFailed(TruoraException.network(message: "Upload server unreachable"), level: .warning)
+
+        await sut.videoRecordingCompleted(videoData: Data([0x02]))
+
+        XCTAssertEqual(mockInteractor.uploadVideoCount, 1, "Should ignore media after the upload failed")
+    }
+
+    func testDetectionsReceived_frameReachingGateAfterVideoCompleted_doesNotRecordAgain() async {
+        let presenter = GatePausingPresenter(
+            view: mockView,
+            interactor: mockInteractor,
+            router: mockRouter,
+            validationId: "test-validation-id",
+            timeProvider: mockTimeProvider
+        )
+        sut = presenter
+        await sut.cameraReady()
+        await runCountdownToCompletion()
+        let face = [createFaceDetectionResult(confidence: 0.95)]
+        await sut.detectionsReceived(face)
+        mockTimeProvider.currentTime = mockTimeProvider.currentTime.addingTimeInterval(1.1)
+        await sut.detectionsReceived(face)
+        XCTAssertEqual(mockView.startRecordingCount, 1, "Precondition: the gate starts the first recording")
+
+        let paused = expectation(description: "Frame handler parked before the autocapture gate")
+        presenter.pauseNextFrame { paused.fulfill() }
+        let frame = Task { await presenter.detectionsReceived(face) }
+        await fulfillment(of: [paused], timeout: 1.0)
+
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        presenter.resumeFrame()
+        await frame.value
+
+        XCTAssertEqual(
+            mockView.startRecordingCount,
+            1,
+            "A frame that passed the upload check before the video arrived must not record again"
+        )
+    }
+
+    func testRecordVideoRequested_whileUploading_doesNotRecord() async {
+        await sut.cameraReady()
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        XCTAssertFalse(mockView.startRecordingCalled, "Should not record while the video uploads")
+    }
+
+    func testVideoRecordingCompleted_whileUploading_doesNotUploadAgain() async {
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+
+        await sut.videoRecordingCompleted(videoData: Data([0x02]))
+
+        XCTAssertEqual(mockInteractor.uploadVideoCount, 1, "One capture must upload only one video")
+        XCTAssertEqual(mockInteractor.lastVideoData, Data([0x01]))
+    }
+
+    func testVideoRecordingCompleted_afterUploadSucceeded_doesNotUploadAgain() async throws {
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        mockTimeProvider.sleepCalledExpectation = expectation(description: "Success hold started")
+        let completion = Task { await sut.videoUploadCompleted(validationId: "test-validation-id") }
+        try await fulfillment(of: [XCTUnwrap(mockTimeProvider.sleepCalledExpectation)], timeout: 1.0)
+        mockTimeProvider.resumeAllSleeps()
+        await completion.value
+
+        // stopCamera at the end of the hold can still deliver a stray recording.
+        await sut.videoRecordingCompleted(videoData: Data([0x02]))
+
+        XCTAssertEqual(mockInteractor.uploadVideoCount, 1, "Should not upload a video after the upload succeeded")
+    }
+
+    func testVideoUploadCompleted_afterUploadFailed_doesNotNavigate() async {
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        await sut.videoUploadFailed(TruoraException.network(message: "Upload server unreachable"), level: .warning)
+
+        await sut.videoUploadCompleted(validationId: "test-validation-id")
+
+        XCTAssertFalse(mockRouter.navigateToResultCalled, "Should not navigate after the flow ended with an error")
+        XCTAssertNotEqual(mockView.lastUploadState, .success, "Should not overwrite the failed state")
+    }
+
+    func testVideoUploadFailed_calledTwice_endsFlowOnce() async {
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        let error = TruoraException.network(message: "Upload server unreachable")
+
+        await sut.videoUploadFailed(error, level: .warning)
+        await sut.videoUploadFailed(error, level: .warning)
+
+        XCTAssertEqual(mockRouter.handleErrorCount, 1, "One capture must end the flow only once")
+    }
+
+    func testVideoUploadFailed_afterUploadSucceeded_doesNotEndFlowWithError() async throws {
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        mockTimeProvider.sleepCalledExpectation = expectation(description: "Success hold started")
+        let completion = Task { await sut.videoUploadCompleted(validationId: "test-validation-id") }
+        try await fulfillment(of: [XCTUnwrap(mockTimeProvider.sleepCalledExpectation)], timeout: 1.0)
+
+        await sut.videoUploadFailed(
+            .sdk(SDKError(type: .uploadFailed, details: "Server error (400): url no longer available")),
+            level: .warning
+        )
+        mockTimeProvider.resumeAllSleeps()
+        await completion.value
+
+        XCTAssertFalse(mockRouter.handleErrorCalled, "Should not end a flow whose video already landed")
+        XCTAssertTrue(mockRouter.navigateToResultCalled, "Should still navigate to the result")
+    }
+
+    func testRecordVideoRequested_afterRecordingFailed_recordsAgain() async {
+        await sut.cameraReady()
+        await sut.handleCaptureEvent(.recordVideoRequested)
+        await sut.cameraError(.internalError("Error unable to record video"))
+
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        XCTAssertEqual(mockView.startRecordingCount, 2, "Should let the user record again after a failed recording")
+    }
+
+    func testCameraError_storageFull_showsLocalizedMessageAndLogsWarning() async throws {
+        let events = try await eventsAfterRecordingFailure(.diskFull)
+
+        XCTAssertEqual(
+            mockView.lastErrorMessage,
+            TruoraLocalization.string(forKey: LocalizationKeys.cameraErrorStorageFull)
+        )
+        XCTAssertEqual(events.last?.eventName, "camera_disk_full_detected")
+        XCTAssertEqual(events.last?.level, .warning)
+        XCTAssertFalse(events.contains { $0.eventName == "camera_crashed" }, "A full disk is not a camera crash")
+    }
+
+    func testCameraError_sessionInterrupted_logsWarning() async throws {
+        let events = try await eventsAfterRecordingFailure(.sessionWasInterrupted)
+
+        XCTAssertEqual(
+            mockView.lastErrorMessage,
+            TruoraLocalization.string(forKey: LocalizationKeys.cameraErrorRecordingFailed)
+        )
+        XCTAssertEqual(events.last?.eventName, "camera_recording_interrupted")
+        XCTAssertEqual(events.last?.level, .warning)
+        XCTAssertFalse(events.contains { $0.eventName == "camera_crashed" }, "An interruption is not a camera crash")
+    }
+
+    func testCameraError_unclassifiedRecordingFailure_logsCameraCrashedAsError() async throws {
+        let events = try await eventsAfterRecordingFailure(.unknown)
+
+        XCTAssertEqual(events.last?.eventName, "camera_crashed")
+        XCTAssertEqual(events.last?.level, .error)
+    }
+
+    private func eventsAfterRecordingFailure(_ code: AVError.Code) async throws -> [SDKEvent] {
+        await TruoraLoggerImplementation.reset()
+        try await TruoraLoggerImplementation.initializeForTesting()
+        await sut.cameraReady()
+        await sut.handleCaptureEvent(.recordVideoRequested)
+
+        let underlyingError = NSError(domain: AVFoundationErrorDomain, code: code.rawValue)
+        await sut.cameraError(.internalError("Error unable to record video", underlyingError: underlyingError))
+
+        let events = try await TruoraLoggerImplementation.shared.bufferedEvents
+        await TruoraLoggerImplementation.reset()
+        return events
+    }
+
+    func testErrorDismissed_withoutSetupFailure_doesNotSetUpCamera() async {
+        await sut.cameraReady()
+
+        await sut.handleCaptureEvent(.errorDismissed)
+
+        XCTAssertEqual(mockView.setupCameraCount, 0)
     }
 
     // MARK: - Face Detection Tests
@@ -394,7 +752,8 @@ import XCTest
 
     func testCameraFrameProcessed_consecutiveFacesForOneSecond_startsRecording() async {
         // Given
-        sut.currentState = .recording
+        await sut.cameraReady()
+        await runCountdownToCompletion()
         let singleFace = [createFaceDetectionResult(confidence: 0.95)]
 
         // When - Start processing first face (starts the timer)
@@ -540,6 +899,7 @@ import XCTest
 
     func testViewWillDisappear_whileRecording_pausesVideoThenStopsCamera() async {
         // Given - Start recording
+        await sut.cameraReady()
         let recordEvent = PassiveCaptureEvent.recordVideoRequested
         await sut.handleCaptureEvent(recordEvent)
 
@@ -557,6 +917,7 @@ import XCTest
 
     func testHandleCaptureEvent_recordingCompleted_stopsRecording() async {
         // Given - First start recording to set lifecycleState to .recording
+        await sut.cameraReady()
         let recordEvent = PassiveCaptureEvent.recordVideoRequested
         await sut.handleCaptureEvent(recordEvent)
 
@@ -661,6 +1022,7 @@ import XCTest
 
     func testHandleCaptureEvent_helpRequested_pausesVideo() async {
         // Given - Start recording first
+        await sut.cameraReady()
         let recordEvent = PassiveCaptureEvent.recordVideoRequested
         await sut.handleCaptureEvent(recordEvent)
 
@@ -700,6 +1062,7 @@ import XCTest
 
     func testHandleCaptureEvent_recordVideoRequested_startsRecording() async {
         // Given
+        await sut.cameraReady()
         let event = PassiveCaptureEvent.recordVideoRequested
 
         // When
@@ -753,6 +1116,7 @@ import XCTest
 
     func testVideoUploadCompleted_navigatesToResult() async throws {
         // Given
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
         let validationId = "upload-success-id"
         mockTimeProvider.sleepCalledExpectation = expectation(description: "Sleep called")
 
@@ -778,6 +1142,7 @@ import XCTest
 
     func testVideoUploadCompleted_waitsOneSecondBeforeNavigating() async throws {
         // Given
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
         let validationId = "upload-success-id"
         mockTimeProvider.sleepCalledExpectation = expectation(description: "Sleep called")
 
@@ -796,6 +1161,7 @@ import XCTest
 
     func testVideoUploadCompleted_keepsCameraLiveDuringSuccessHold() async throws {
         // Given
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
         mockTimeProvider.sleepCalledExpectation = expectation(description: "Sleep called")
 
         // When
@@ -813,6 +1179,7 @@ import XCTest
 
     func testVideoUploadCompleted_withFailedValidation_stillNavigates() async throws {
         // Given
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
         let validationId = "failed-validation"
         mockTimeProvider.sleepCalledExpectation = expectation(description: "Sleep called")
 
@@ -834,9 +1201,10 @@ import XCTest
     func testVideoUploadFailed_showsError() async {
         // Given
         let expectedError = TruoraException.network(message: "Upload server unreachable")
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
 
         // When
-        await sut.videoUploadFailed(expectedError)
+        await sut.videoUploadFailed(expectedError, level: .warning)
 
         // Then
         XCTAssertEqual(mockView.lastUploadState, UploadState.none, "Should reset upload state to NONE on error")
@@ -846,6 +1214,27 @@ import XCTest
             expectedError.errorDescription,
             "Should display error description"
         )
+    }
+
+    func testVideoUploadCompleted_passesTheUploadDurationToTheLog() async throws {
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+        mockTimeProvider.sleepCalledExpectation = expectation(description: "Sleep called")
+
+        let task = Task { await sut.videoUploadCompleted(validationId: "dummy-validation-id", uploadDurationMs: 1234) }
+        try await fulfillment(of: [XCTUnwrap(mockTimeProvider.sleepCalledExpectation)], timeout: 1.0)
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
+
+        XCTAssertEqual(mockInteractor.loggedCaptureSuccessDurationsMs, [1234])
+    }
+
+    func testVideoUploadFailed_passesTheUploadDurationToTheLog() async {
+        let error = TruoraException.network(message: "Upload server unreachable")
+        await sut.videoRecordingCompleted(videoData: Data([0x01]))
+
+        await sut.videoUploadFailed(error, level: .warning, uploadDurationMs: 1234)
+
+        XCTAssertEqual(mockInteractor.loggedCaptureFailureDurationsMs, [1234])
     }
 
     func testCameraPermissionDenied_callsRouterHandleError() async {
@@ -1153,7 +1542,8 @@ import XCTest
 
     func testCameraFrameProcessed_sidewaysToFrontal_recoversAndStartsRecording() async {
         // Given
-        sut.currentState = .recording
+        await sut.cameraReady()
+        await runCountdownToCompletion()
         let sidewaysFace = [createFaceDetectionResult(yaw: .pi / 3)]
         let frontalFace = [createFaceDetectionResult(yaw: 0)]
 
@@ -1577,6 +1967,7 @@ import XCTest
     var setupCameraCalled = false
     var setupCameraCount = 0
     var startRecordingCalled = false
+    var startRecordingCount = 0
     var stopRecordingCalled = false
     var stopCameraCalled = false
     var pauseCameraCalled = false
@@ -1585,6 +1976,7 @@ import XCTest
     var resumeVideoCalled = false
     var updateUICalled = false
     var showErrorCalled = false
+    var retryableErrorCount = 0
     var lastErrorMessage: String?
     var lastState: Any?
     var lastFeedback: FeedbackType?
@@ -1609,6 +2001,7 @@ import XCTest
 
     func startRecording() {
         startRecordingCalled = true
+        startRecordingCount += 1
     }
 
     func stopRecording() {
@@ -1656,12 +2049,19 @@ import XCTest
         self.lastIsActivelyRecording = isActivelyRecording
     }
 
+    func showRetryableError(_ message: String) {
+        retryableErrorCount += 1
+    }
+
     func showError(_ message: String) {
         showErrorCalled = true
         lastErrorMessage = message
     }
 
-    func resetRecordingInProgress() {}
+    private(set) var resetRecordingInProgressCount = 0
+    func resetRecordingInProgress() {
+        resetRecordingInProgressCount += 1
+    }
 
     func updateDetectedFaceBoundingBoxes(_ visionBoxes: [CGRect]) {
         detectedFaceBoxesUpdates.append(visionBoxes)
@@ -1674,6 +2074,7 @@ import XCTest
 private final class MockPassiveCaptureInteractor: PassiveCapturePresenterToInteractor {
     private(set) var setUploadUrlCalled = false
     private(set) var uploadVideoCalled = false
+    private(set) var uploadVideoCount = 0
     private(set) var lastUploadUrl: String?
     private(set) var lastVideoData: Data?
 
@@ -1698,12 +2099,20 @@ private final class MockPassiveCaptureInteractor: PassiveCapturePresenterToInter
 
     func uploadVideo(_ videoData: Data) {
         uploadVideoCalled = true
+        uploadVideoCount += 1
         lastVideoData = videoData
     }
 
-    func logFaceCaptureSucceeded() async {}
+    private(set) var loggedCaptureSuccessDurationsMs: [Int?] = []
+    private(set) var loggedCaptureFailureDurationsMs: [Int?] = []
 
-    func logFaceCaptureFailed(errorMessage: String) async {}
+    func logFaceCaptureSucceeded(uploadDurationMs: Int?) async {
+        loggedCaptureSuccessDurationsMs.append(uploadDurationMs)
+    }
+
+    func logFaceCaptureFailed(errorMessage: String, level: LogLevel, uploadDurationMs: Int?) async {
+        loggedCaptureFailureDurationsMs.append(uploadDurationMs)
+    }
 
     func logFaceQualityGatePassed(timeToReadyMs: Int) async {
         logFaceQualityGatePassedCalled = true
@@ -1743,6 +2152,7 @@ private final class MockPassiveCaptureInteractor: PassiveCapturePresenterToInter
     private(set) var lastValidationId: String?
     private(set) var lastIsCanceled: Bool?
     private(set) var handleErrorCalled = false
+    private(set) var handleErrorCount = 0
     private(set) var lastErrorMessage: String?
 
     override func navigateToResult(
@@ -1757,6 +2167,7 @@ private final class MockPassiveCaptureInteractor: PassiveCapturePresenterToInter
 
     override func handleError(_ error: TruoraException) {
         handleErrorCalled = true
+        handleErrorCount += 1
         lastErrorMessage = error.localizedDescription
     }
 }
@@ -1777,6 +2188,33 @@ private final class HiddenFaceStubPresenter: PassiveCapturePresenter {
 
     override func isFaceHidden(_ face: DetectionResult) -> Bool {
         lock.withLock { _forceHiddenFace }
+    }
+}
+
+/// Parks the next frame handler between the upload-state check and the autocapture gate.
+private final class GatePausingPresenter: PassiveCapturePresenter {
+    private let lock = NSLock()
+    private let resume = DispatchSemaphore(value: 0)
+    private var onPaused: (() -> Void)?
+
+    func pauseNextFrame(onPaused: @escaping () -> Void) {
+        lock.withLock { self.onPaused = onPaused }
+    }
+
+    func resumeFrame() {
+        resume.signal()
+    }
+
+    override func isFaceHidden(_ face: DetectionResult) -> Bool {
+        let paused: (() -> Void)? = lock.withLock {
+            defer { onPaused = nil }
+            return onPaused
+        }
+        if let paused {
+            paused()
+            _ = resume.wait(timeout: .now() + 2)
+        }
+        return false
     }
 }
 

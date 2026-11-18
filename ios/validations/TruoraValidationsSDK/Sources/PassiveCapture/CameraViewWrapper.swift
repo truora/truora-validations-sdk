@@ -140,9 +140,7 @@ struct CameraViewWrapper: UIViewRepresentable {
             if case .permissionDenied = error {
                 viewModel.cameraPermissionDenied()
             } else {
-                let errorMessage = error.localizedDescription
-                viewModel.cameraError(errorMessage)
-                viewModel.showError("Camera error: \(errorMessage)")
+                viewModel.cameraError(error)
             }
         }
 

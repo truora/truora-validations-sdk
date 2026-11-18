@@ -26,6 +26,9 @@ public enum CameraError: Error, LocalizedError {
     /// Capture session error with reason.
     case captureSessionError(reason: String? = nil)
 
+    /// The session is interrupted or resuming and will run by itself.
+    case sessionNotReady
+
     /// Video export failed with status and optional error.
     case exportFailed(status: AVAssetExportSession.Status? = nil, error: Error? = nil)
 
@@ -52,6 +55,8 @@ public enum CameraError: Error, LocalizedError {
                 return "Capture session error: \(reason)"
             }
             return "Capture session error"
+        case .sessionNotReady:
+            return "Camera session is not ready"
         case .exportFailed(let status, _):
             if let status {
                 return "Video export failed (status: \(status.rawValue))"
@@ -71,11 +76,43 @@ public enum CameraError: Error, LocalizedError {
         }
     }
 
+    public var isSessionNotRunning: Bool {
+        if case .captureSessionError = self { return true }
+        return false
+    }
+
+    public var isSessionNotReady: Bool {
+        if case .sessionNotReady = self { return true }
+        return false
+    }
+
+    public var isStorageFull: Bool {
+        isAVError(.diskFull)
+    }
+
+    /// The system, not the camera, stopped the recording.
+    public var isSessionInterrupted: Bool {
+        isAVError(.sessionWasInterrupted)
+    }
+
+    private func isAVError(_ code: AVError.Code) -> Bool {
+        guard case .internalError(_, let underlyingError?) = self else { return false }
+        let error = underlyingError as NSError
+        return error.domain == AVFoundationErrorDomain && error.code == code.rawValue
+    }
+
     // MARK: - Backward Compatibility
 
     /// Provides backward-compatible localized description.
     /// - Note: Prefer using errorDescription from LocalizedError conformance.
     public var localizedDescription: String {
         errorDescription ?? "Unknown camera error"
+    }
+}
+
+extension Error {
+    var diagnosticCode: String {
+        let error = self as NSError
+        return "\(error.domain) \(error.code)"
     }
 }

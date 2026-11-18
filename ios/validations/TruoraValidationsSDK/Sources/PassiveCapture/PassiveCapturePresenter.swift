@@ -35,7 +35,13 @@ class PassiveCapturePresenter {
     private var uploadState: UploadState = .none
     private var lifecycleState: CameraLifecycleState = .uninitialized
     private var isSettingUpCamera: Bool = false
+    private var hasUploadFailed: Bool = false
+    /// Serializes the recording and upload claims and the upload outcome.
+    private let stateLock = NSLock()
+    private var failedCameraSetups = 0
+    private static let maxCameraSetupRetries = 2
     private let timeProvider: TimeProvider
+    private let cameraAuthorizationStatus: () -> AVAuthorizationStatus
     private let useAutocapture: Bool
 
     /// Constants for logging
@@ -163,7 +169,10 @@ class PassiveCapturePresenter {
         validationId: String,
         useAutocapture: Bool = true,
         timeProvider: TimeProvider = RealTimeProvider(),
-        detectionReporter: DetectionReporter? = ValidationConfig.shared.detectionReporter
+        detectionReporter: DetectionReporter? = ValidationConfig.shared.detectionReporter,
+        cameraAuthorizationStatus: @escaping () -> AVAuthorizationStatus = {
+            AVCaptureDevice.authorizationStatus(for: .video)
+        }
     ) {
         self.view = view
         self.interactor = interactor
@@ -172,6 +181,7 @@ class PassiveCapturePresenter {
         self.useAutocapture = useAutocapture
         self.timeProvider = timeProvider
         self.detectionReporter = detectionReporter
+        self.cameraAuthorizationStatus = cameraAuthorizationStatus
         // Set initial state based on autocapture setting to avoid flash of countdown
         self.currentState = useAutocapture ? .countdown : .manual
         self.countdown = useAutocapture ? 3 : 0
@@ -232,11 +242,15 @@ class PassiveCapturePresenter {
     }
 
     private func startRecording() async {
-        guard lifecycleState != .recording else {
+        let claim = claimRecording()
+        guard claim.claimed else {
+            // Another start owns the recording; re-enabling the button here would allow taps mid-recording.
+            if claim.existingState != .recording {
+                await view?.resetRecordingInProgress()
+            }
             return
         }
 
-        lifecycleState = .recording
         currentState = .recording
         // .recording is no longer in FeedbackType — the overlay reads isActivelyRecording
         // (derived from lifecycleState) to switch the pill and the progress ring.
@@ -260,6 +274,45 @@ class PassiveCapturePresenter {
 
         // Start camera recording immediately, UI handles timing
         await view?.startRecording()
+    }
+
+    private func claimRecording() -> (claimed: Bool, existingState: CameraLifecycleState) {
+        stateLock.withLock { () -> (claimed: Bool, existingState: CameraLifecycleState) in
+            let existingState = lifecycleState
+            guard !hasUploadFailed, existingState == .ready, uploadState == .none else { return (false, existingState) }
+            lifecycleState = .recording
+            return (true, existingState)
+        }
+    }
+
+    /// One capture uploads one video: only the first may claim the upload, and none after a failure.
+    private func claimUpload() -> (claimed: Bool, existingState: UploadState) {
+        stateLock.withLock { () -> (claimed: Bool, existingState: UploadState) in
+            let existingState = uploadState
+            guard !hasUploadFailed, existingState == .none else { return (false, existingState) }
+            uploadState = .uploading
+            lifecycleState = .ready
+            return (true, existingState)
+        }
+    }
+
+    private func markUploadSucceeded() -> Bool {
+        stateLock.withLock { () -> Bool in
+            guard uploadState == .uploading else { return false }
+            uploadState = .success
+            return true
+        }
+    }
+
+    /// Only the claimed upload can fail, and only once; a failure after `.success` must not end the flow.
+    private func markUploadFailed() -> Bool {
+        stateLock.withLock { () -> Bool in
+            guard uploadState == .uploading else { return false }
+            hasUploadFailed = true
+            lifecycleState = .stopped
+            uploadState = .none
+            return true
+        }
     }
 
     /// Checks if manual capture timeout has been reached (thread-safe)
@@ -581,6 +634,26 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         )
     }
 
+    private func logCameraWarning(eventName: String, errorMessage: String, reason: String? = nil) async {
+        guard let logger = try? TruoraLoggerImplementation.shared else {
+            return
+        }
+        var metadata: [String: Any] = [
+            "validation_type": Self.validationType,
+            "selected_camera": "front"
+        ]
+        if let reason {
+            metadata["reason"] = reason
+        }
+        await logger.logCamera(
+            eventName: eventName,
+            level: .warning,
+            errorMessage: errorMessage,
+            retention: .oneWeek,
+            metadata: metadata
+        )
+    }
+
     private func logCameraPermissionGranted() async {
         guard let logger = try? TruoraLoggerImplementation.shared else {
             return
@@ -603,7 +676,7 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         }
         await logger.logCamera(
             eventName: "camera_crashed",
-            level: .fatal,
+            level: .error,
             errorMessage: errorMessage,
             retention: .oneMonth,
             metadata: [
@@ -613,15 +686,106 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         )
     }
 
-    func cameraError(_ errorMessage: String) async {
-        if lifecycleState == .uninitialized || lifecycleState == .stopped {
-            await logCameraOpenFailed(errorMessage: errorMessage)
-        } else {
+    func cameraError(_ error: CameraError) async {
+        let errorMessage = error.localizedDescription
+
+        if hasUploadFailed {
+            await logCameraWarning(
+                eventName: "late_camera_error_ignored", errorMessage: errorMessage, reason: "upload_failed"
+            )
+            return
+        }
+
+        let isCameraOpen = lifecycleState != .uninitialized && lifecycleState != .stopped
+
+        if lifecycleState == .stopped, !isSettingUpCamera {
+            let reason = if failedCameraSetups > Self.maxCameraSetupRetries {
+                "retry_exhausted"
+            } else if isRetryPending {
+                "retry_pending"
+            } else {
+                "camera_stopped"
+            }
+            await logCameraWarning(eventName: "late_camera_error_ignored", errorMessage: errorMessage, reason: reason)
+            return
+        }
+
+        // A session that is not running and not interrupted will not restart by itself.
+        if error.isSessionNotRunning || (!isCameraOpen && isSettingUpCamera) {
+            await handleCameraFailure(errorMessage: errorMessage)
+            await logCameraFailure(errorMessage: errorMessage, wasOpen: isCameraOpen)
+            return
+        }
+
+        // Leave .recording before any await so a completion event cannot stop a dead recording.
+        if lifecycleState == .recording {
+            lifecycleState = .ready
+            resetProcessingTimer()
+            await view?.resetRecordingInProgress()
+            await transitionToManualWithoutError()
+        }
+
+        // The session restarts by itself; the user taps record again.
+        if error.isSessionNotReady {
+            await logCameraWarning(eventName: "camera_not_ready_record_ignored", errorMessage: errorMessage)
+            return
+        }
+
+        await handleRecordingFailure(error, errorMessage: errorMessage, wasOpen: isCameraOpen)
+    }
+
+    /// A full disk or a system interruption is the device's state, not a camera fault.
+    private func handleRecordingFailure(_ error: CameraError, errorMessage: String, wasOpen: Bool) async {
+        if error.isStorageFull {
+            await view?.showError(TruoraLocalization.string(forKey: LocalizationKeys.cameraErrorStorageFull))
+            await logCameraWarning(eventName: "camera_disk_full_detected", errorMessage: errorMessage)
+            return
+        }
+
+        await view?.showError(TruoraLocalization.string(forKey: LocalizationKeys.cameraErrorRecordingFailed))
+        if error.isSessionInterrupted {
+            await logCameraWarning(eventName: "camera_recording_interrupted", errorMessage: errorMessage)
+            return
+        }
+        await logCameraFailure(errorMessage: errorMessage, wasOpen: wasOpen)
+    }
+
+    private func logCameraFailure(errorMessage: String, wasOpen: Bool) async {
+        if wasOpen {
             await logCameraCrashed(errorMessage: errorMessage)
+        } else {
+            await logCameraOpenFailed(errorMessage: errorMessage)
         }
     }
 
+    private func handleCameraFailure(errorMessage: String) async {
+        isSettingUpCamera = false
+        failedCameraSetups += 1
+        await resetToInitialState()
+        await view?.stopCamera()
+
+        if failedCameraSetups > Self.maxCameraSetupRetries {
+            await router?.handleError(CameraError.internalError(errorMessage).toTruoraException())
+        } else {
+            await view?.showRetryableError(TruoraLocalization.string(forKey: LocalizationKeys.cameraErrorSetupFailed))
+        }
+    }
+
+    /// The retry alert is open, so only its dismissal may restart the camera.
+    private var isRetryPending: Bool {
+        failedCameraSetups > 0 && lifecycleState == .stopped && !isSettingUpCamera
+    }
+
+    private func retryFailedCameraSetup() async {
+        guard isRetryPending, failedCameraSetups <= Self.maxCameraSetupRetries else { return }
+
+        isSettingUpCamera = true
+        await view?.setupCamera()
+    }
+
     func viewWillAppear() async {
+        guard !hasUploadFailed else { return }
+
         // On initial load, skip restart logic as it's handled by viewDidLoad
         guard lifecycleState != .uninitialized else {
             return
@@ -639,19 +803,17 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
 
         // Re-try setup when returning to view (e.g. from Settings or background)
         debugLog("🟢 viewWillAppear, checking camera permissions...")
-        let status = AVCaptureDevice.authorizationStatus(for: .video)
-
-        switch status {
+        switch cameraAuthorizationStatus() {
         case .authorized:
             await logCameraPermissionGranted()
-            if lifecycleState == .stopped, !isSettingUpCamera {
+            if lifecycleState == .stopped, !isSettingUpCamera, !isRetryPending {
                 debugLog("✅ Permission granted, restarting camera...")
                 isSettingUpCamera = true
                 await resetToInitialState()
                 await view?.setupCamera()
             }
         case .notDetermined:
-            if !isSettingUpCamera {
+            if !isSettingUpCamera, !isRetryPending {
                 debugLog("🟠 Permission not determined, triggering setup...")
                 isSettingUpCamera = true
                 await view?.setupCamera()
@@ -687,7 +849,13 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
     }
 
     func cameraReady() async {
+        guard !hasUploadFailed else {
+            await view?.stopCamera()
+            return
+        }
+
         isSettingUpCamera = false
+        failedCameraSetups = 0
         lifecycleState = .ready
         showSettingsPrompt = false
         startSessionTracking()
@@ -769,10 +937,19 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
     }
 
     func videoRecordingCompleted(videoData: Data) async {
+        let claim = claimUpload()
+        guard claim.claimed else {
+            guard !hasUploadFailed else { return }
+            await logCameraWarning(
+                eventName: "duplicate_face_video_ignored",
+                errorMessage: "Video received after the upload started",
+                reason: claim.existingState == .success ? "upload_succeeded" : "upload_in_progress"
+            )
+            return
+        }
+
         debugLog("🟢 PassiveCapturePresenter: Received video data (\(videoData.count) bytes)")
-        lifecycleState = .ready
         capturedVideoData = videoData
-        uploadState = .uploading
 
         // Keep state as RECORDING with no feedback during upload
         // This prevents UI from showing buttons or messages
@@ -971,6 +1148,9 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
     }
 
     func appWillResignActive() async {
+        // Nothing resumes a camera paused before cameraReady.
+        guard !isSettingUpCamera else { return }
+
         // Snapshot state so we can resume correctly.
         wasRecordingAtSuspend = (lifecycleState == .recording)
         stateAtSuspend = currentState
@@ -1000,6 +1180,8 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
     }
 
     func appDidBecomeActive() async {
+        guard !hasUploadFailed else { return }
+
         // If uploading (or already completed), do not attempt to restart camera.
         if uploadState == .uploading || uploadState == .success {
             return
@@ -1008,9 +1190,11 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         // If the view isn't visible anymore, viewWillAppear/viewDidLoad will handle restart.
         guard lifecycleState != .uninitialized else { return }
 
+        guard !isSettingUpCamera, !isRetryPending else { return }
+
         // If camera was stopped while app was inactive (e.g., upload failed/completed but we didn't
         // navigate away), restart it now.
-        if lifecycleState == .stopped, !isSettingUpCamera {
+        if lifecycleState == .stopped {
             isSettingUpCamera = true
             await view?.setupCamera()
             return
@@ -1018,24 +1202,7 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
 
         // If recording was interrupted by backgrounding, restart flow as requested.
         if wasRecordingAtSuspend {
-            // Avoid overwriting an existing pending action if we get multiple
-            // suspend/resume cycles while setup is still in flight.
-            guard pendingCameraReadyAction == .none, !isSettingUpCamera else {
-                return
-            }
-
-            wasRecordingAtSuspend = false
-            if useAutocapture {
-                pendingCameraReadyAction = .resumeFromSuspendWasRecordingAuto
-            } else {
-                pendingCameraReadyAction = .resumeFromSuspendWasRecordingManual
-            }
-
-            // Clean restart to ensure recording can start reliably.
-            await view?.stopCamera()
-            lifecycleState = .stopped
-            isSettingUpCamera = true
-            await view?.setupCamera()
+            await restartCameraAfterRecordingInterruption()
             return
         }
 
@@ -1077,6 +1244,25 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
         uploadStateAtSuspend = .none
     }
 
+    private func restartCameraAfterRecordingInterruption() async {
+        guard pendingCameraReadyAction == .none else {
+            return
+        }
+
+        wasRecordingAtSuspend = false
+        if useAutocapture {
+            pendingCameraReadyAction = .resumeFromSuspendWasRecordingAuto
+        } else {
+            pendingCameraReadyAction = .resumeFromSuspendWasRecordingManual
+        }
+
+        // Clean restart to ensure recording can start reliably.
+        await view?.stopCamera()
+        lifecycleState = .stopped
+        isSettingUpCamera = true
+        await view?.setupCamera()
+    }
+
     func cameraPermissionDenied() async {
         isSettingUpCamera = false
         debugLog("❌ PassiveCapturePresenter: Camera permission denied")
@@ -1107,6 +1293,8 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
             await startRecording()
         case .recordingCompleted:
             await handleRecordingCompleted()
+        case .errorDismissed:
+            await retryFailedCameraSetup()
         default:
             break
         }
@@ -1193,12 +1381,13 @@ extension PassiveCapturePresenter: PassiveCaptureViewToPresenter {
 }
 
 extension PassiveCapturePresenter: PassiveCaptureInteractorToPresenter {
-    func videoUploadCompleted(validationId: String) async {
-        uploadState = .success
+    func videoUploadCompleted(validationId: String, uploadDurationMs: Int? = nil) async {
+        guard markUploadSucceeded() else { return }
+
         await view?.resetRecordingInProgress()
 
         // Log successful face capture
-        await interactor?.logFaceCaptureSucceeded()
+        await interactor?.logFaceCaptureSucceeded(uploadDurationMs: uploadDurationMs)
 
         await updateUI()
 
@@ -1219,19 +1408,23 @@ extension PassiveCapturePresenter: PassiveCaptureInteractorToPresenter {
         }
     }
 
-    func videoUploadFailed(_ error: TruoraException) async {
-        uploadState = .none
+    func videoUploadFailed(_ error: TruoraException, level: LogLevel, uploadDurationMs: Int? = nil) async {
+        guard markUploadFailed() else { return }
+
         await view?.resetRecordingInProgress()
 
         // Log failed face capture
         let errorMessage = error.errorDescription ?? "Unknown error"
-        await interactor?.logFaceCaptureFailed(errorMessage: errorMessage)
+        await interactor?.logFaceCaptureFailed(
+            errorMessage: errorMessage,
+            level: level,
+            uploadDurationMs: uploadDurationMs
+        )
 
         await updateUI()
 
         // Stop camera before dismissing flow
         await view?.stopCamera()
-        lifecycleState = .stopped
 
         // Validation timeout - navigate to result screen to show failure
         if isValidationError(error) {

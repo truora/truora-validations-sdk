@@ -337,6 +337,19 @@ import XCTest
         )
     }
 
+    func testPhotoUploadCompleted_passesTheUploadDurationToTheLog() async throws {
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        mockTimeProvider.sleepCalledExpectation = expectation(description: "Sleep called")
+
+        let task = Task { await sut.photoUploadCompleted(side: .front, uploadDurationMs: 1234) }
+        try await fulfillment(of: [XCTUnwrap(mockTimeProvider.sleepCalledExpectation)], timeout: 1.0)
+        mockTimeProvider.resumeAllSleeps()
+        await task.value
+
+        XCTAssertEqual(mockInteractor.loggedCaptureSuccesses.count, 1)
+        XCTAssertEqual(mockInteractor.loggedCaptureSuccesses.first?.uploadDurationMs, 1234)
+    }
+
     // MARK: - Single-Sided Document Tests
 
     func testSingleSidedDocument_frontCompleted_navigatesToResult() async {
@@ -449,6 +462,99 @@ import XCTest
         XCTAssertEqual(mockRouter.lastNavigatedLoadingType, .document)
     }
 
+    // MARK: - Evaluation Failure Logging Tests
+
+    func testImageEvaluationErrored_with5xx_logsAnError() async {
+        let apiError = TruoraAPIError.serverError(statusCode: 503, body: nil)
+
+        await sut.imageEvaluationErrored(side: .front, error: .network(message: "down", underlyingError: apiError))
+
+        XCTAssertEqual(mockInteractor.loggedFeedbackFailures.count, 1)
+        XCTAssertEqual(mockInteractor.loggedFeedbackFailures.first?.level, .error, "A 5xx is the server's fault")
+    }
+
+    func testImageEvaluationErrored_with3xx_logsAnError() async {
+        let apiError = TruoraAPIError.serverError(statusCode: 302, body: nil)
+
+        await sut.imageEvaluationErrored(
+            side: .front,
+            error: .network(message: "redirected", underlyingError: apiError)
+        )
+
+        XCTAssertEqual(mockInteractor.loggedFeedbackFailures.first?.level, .error)
+    }
+
+    func testImageEvaluationErrored_with4xxOrNoConnectivity_logsAWarning() async {
+        let rejected = TruoraAPIError.serverError(statusCode: 400, body: "rejected")
+        let offline = URLError(.notConnectedToInternet)
+
+        await sut.imageEvaluationErrored(side: .front, error: .network(message: "rejected", underlyingError: rejected))
+        await sut.imageEvaluationErrored(side: .front, error: .network(message: "offline", underlyingError: offline))
+
+        XCTAssertEqual(mockInteractor.loggedFeedbackFailures.map(\.level), [.warning, .warning])
+    }
+
+    func testImageEvaluationErrored_withAnUnreadableResponse_logsAnError() async {
+        let decoding = TruoraAPIError.decodingError(URLError(.cannotParseResponse))
+
+        await sut.imageEvaluationErrored(side: .front, error: .network(message: "bad", underlyingError: decoding))
+
+        XCTAssertEqual(mockInteractor.loggedFeedbackFailures.first?.level, .error, "An unreadable response is a defect")
+    }
+
+    func testImageEvaluationErrored_afterTheRetriesAreSpent_logsOnceEvenThoughEachRetryStartsAnEvaluation()
+    async throws {
+        // Given - an evaluation in progress, so errors are retried
+        try ValidationConfig.shared.setValidation(
+            .document(Document().setCountry("PE").setDocumentType("national-id"))
+        )
+        let photoData = Data([0x01, 0x02])
+        await sut.photoCaptured(photoData: photoData)
+        let apiError = TruoraAPIError.serverError(statusCode: 503, body: nil)
+
+        // When - the real interactor reports imageEvaluationStarted on every retry, which must not
+        // reset the retry counter
+        for _ in 0 ..< 2 {
+            let retry = Task {
+                await sut.imageEvaluationErrored(
+                    side: .front,
+                    error: .network(message: "down", underlyingError: apiError)
+                )
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+            mockTimeProvider.resumeAllSleeps()
+            await retry.value
+            await sut.imageEvaluationStarted(side: .front, previewData: photoData)
+        }
+        XCTAssertTrue(mockInteractor.loggedFeedbackFailures.isEmpty, "Retried attempts are not logged")
+
+        await sut.imageEvaluationErrored(side: .front, error: .network(message: "down", underlyingError: apiError))
+
+        // Then
+        XCTAssertEqual(mockInteractor.loggedFeedbackFailures.count, 1, "Should log once the retries are spent")
+        XCTAssertEqual(mockInteractor.loggedFeedbackFailures.first?.level, .error)
+    }
+
+    func testImageEvaluationErrored_whileItStillRetries_doesNotLog() async throws {
+        // Given - an evaluation in progress, so the error is retried
+        try ValidationConfig.shared.setValidation(
+            .document(Document().setCountry("PE").setDocumentType("national-id"))
+        )
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        let apiError = TruoraAPIError.serverError(statusCode: 503, body: nil)
+
+        // When
+        let retry = Task {
+            await sut.imageEvaluationErrored(side: .front, error: .network(message: "down", underlyingError: apiError))
+        }
+        try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        mockTimeProvider.resumeAllSleeps()
+        await retry.value
+
+        // Then
+        XCTAssertTrue(mockInteractor.loggedFeedbackFailures.isEmpty, "A retried attempt is not logged")
+    }
+
     // MARK: - Upload Failure Tests
 
     func testPhotoUploadFailed_frontSide_clearsStatusAndShowsError() async {
@@ -459,7 +565,7 @@ import XCTest
         let error = TruoraException.sdk(SDKError(type: .uploadFailed, details: "Network error"))
 
         // When
-        await sut.photoUploadFailed(side: .front, error: error)
+        await sut.photoUploadFailed(side: .front, error: error, level: .warning)
 
         // Then
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
@@ -467,6 +573,8 @@ import XCTest
         XCTAssertEqual(mockView.lastFeedbackType, .searching, "Should switch to autocapture mode")
         XCTAssertTrue(mockView.showErrorCalled, "Should show error")
         XCTAssertTrue(mockView.lastErrorMessage?.contains("Network error") ?? false)
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.count, 1, "Should log the failure once")
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.first?.level, .warning, "Should log the level it received")
     }
 
     func testPhotoUploadFailed_backSide_clearsStatusAndShowsError() async {
@@ -491,7 +599,7 @@ import XCTest
         let error = TruoraException.sdk(SDKError(type: .uploadFailed, details: "Upload timeout"))
 
         // When
-        await sut.photoUploadFailed(side: .back, error: error)
+        await sut.photoUploadFailed(side: .back, error: error, level: .warning)
 
         // Then
         XCTAssertTrue(mockView.updateComposeUICalled, "Should update UI")
@@ -499,6 +607,48 @@ import XCTest
         XCTAssertEqual(mockView.lastFeedbackType, .searching, "Should switch to autocapture mode")
         XCTAssertTrue(mockView.showErrorCalled, "Should show error")
         XCTAssertTrue(mockView.lastErrorMessage?.contains("Upload timeout") ?? false)
+    }
+
+    func testPhotoUploadFailed_withValidationExpired_logsCaptureFailureAndNavigatesToResult() async {
+        // Given
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        let error = TruoraException.sdk(SDKError(
+            type: .validationError,
+            details: "Validation expired. The time limit was exceeded."
+        ))
+
+        // When
+        await sut.photoUploadFailed(side: .front, error: error, level: .warning)
+
+        // Then
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.count, 1)
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.first?.side, .front)
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.first?.errorMessage, error.errorDescription)
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.first?.level, .warning)
+        XCTAssertTrue(mockRouter.navigateToResultCalled, "Should navigate to result")
+    }
+
+    func testPhotoUploadFailed_withUploadError_logsCaptureFailure() async {
+        // Given
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        let error = TruoraException.sdk(SDKError(type: .uploadFailed, details: "Network error"))
+
+        // When
+        await sut.photoUploadFailed(side: .front, error: error, level: .warning)
+
+        // Then
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.count, 1)
+        XCTAssertFalse(mockRouter.navigateToResultCalled, "Should not navigate to result")
+    }
+
+    func testPhotoUploadFailed_passesTheUploadDurationToTheLog() async {
+        await sut.photoCaptured(photoData: Data([0x01, 0x02]))
+        let error = TruoraException.sdk(SDKError(type: .uploadFailed, details: "Network error"))
+
+        await sut.photoUploadFailed(side: .front, error: error, level: .warning, uploadDurationMs: 1234)
+
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.count, 1)
+        XCTAssertEqual(mockInteractor.loggedCaptureFailures.first?.uploadDurationMs, 1234)
     }
 
     // MARK: - State Management Tests
@@ -810,6 +960,8 @@ private final class MockDocumentCaptureInteractor:
     private(set) var lastEvaluateDocumentType: String?
     private(set) var lastEvaluateValidationId: String?
 
+    private(set) var loggedFeedbackFailures: [(errorMessage: String, level: LogLevel)] = []
+
     func setUploadUrls(frontUploadUrl: String, reverseUploadUrl: String?) {
         setUploadUrlsCalled = true
         lastFrontUploadUrl = frontUploadUrl
@@ -837,15 +989,39 @@ private final class MockDocumentCaptureInteractor:
         lastEvaluateValidationId = validationId
     }
 
-    func logDocCaptureSucceeded(side: DocumentCaptureSide, validationId: String) async {}
+    typealias CaptureSuccess = (side: DocumentCaptureSide, validationId: String, uploadDurationMs: Int?)
+    private(set) var loggedCaptureSuccesses: [CaptureSuccess] = []
 
-    func logDocCaptureFailed(side: DocumentCaptureSide, validationId: String, errorMessage: String)
-        async
-    {}
+    func logDocCaptureSucceeded(side: DocumentCaptureSide, validationId: String, uploadDurationMs: Int?) async {
+        loggedCaptureSuccesses.append((side, validationId, uploadDurationMs))
+    }
+
+    typealias CaptureFailure = (
+        side: DocumentCaptureSide,
+        validationId: String,
+        errorMessage: String,
+        level: LogLevel,
+        uploadDurationMs: Int?
+    )
+    private(set) var loggedCaptureFailures: [CaptureFailure] = []
+
+    func logDocCaptureFailed(
+        side: DocumentCaptureSide,
+        validationId: String,
+        errorMessage: String,
+        level: LogLevel,
+        uploadDurationMs: Int?
+    ) async {
+        loggedCaptureFailures.append((side, validationId, errorMessage, level, uploadDurationMs))
+    }
 
     func logDocFeedbackSucceeded(validationId: String, result: String, reason: String?) async {}
 
-    func logDocFeedbackFailed(validationId: String, errorMessage: String) async {}
+    func logDocFeedbackRejected(validationId: String, errorMessage: String) async {}
+
+    func logDocFeedbackFailed(validationId: String, errorMessage: String, level: LogLevel) async {
+        loggedFeedbackFailures.append((errorMessage: errorMessage, level: level))
+    }
 
     func reset() {
         uploadPhotoCalled = false

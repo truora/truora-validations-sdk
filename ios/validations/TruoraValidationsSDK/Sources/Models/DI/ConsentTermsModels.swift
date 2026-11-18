@@ -18,7 +18,7 @@ import Foundation
 /// service still answers 200, but with the stored Go templates unparsed — texts
 /// containing `{{.company}}` tokens. That is a valid response, not an error; the
 /// copy flows through verbatim.
-struct ConsentTermsResponse: Codable, Equatable, Sendable {
+struct ConsentTermsResponse: Codable, Equatable {
     let clientId: String?
     let termsId: String?
     let version: String?
@@ -53,7 +53,7 @@ struct ConsentTermsResponse: Codable, Equatable, Sendable {
 
 /// Company information for one country inside the `enter_authorization` step
 /// config (`shared/models.CompanyInfo` on the backend).
-struct CompanyInfo: Codable, Equatable, Sendable {
+struct CompanyInfo: Codable, Equatable {
     /// Company display name. Absent when ``skipCompanyInfoCheck`` is set.
     let name: String?
     /// Tax id. The backend requires it only for `CO`.
@@ -82,7 +82,7 @@ struct CompanyInfo: Codable, Equatable, Sendable {
 
 /// Typed view of ``TruoraStep/config`` for the `enter_authorization` step
 /// (`EnterAuthorizationVerificationConfig` on the backend).
-struct EnterAuthorizationConfig: Codable, Equatable, Sendable {
+struct EnterAuthorizationConfig: Codable, Equatable {
     /// Country → company info. Keys are `ALL | CO | BR | MX` (backend-validated).
     let supportedCountries: [String: CompanyInfo]
     /// Term alias (`default-basic` / `default-items`) → concrete terms id.

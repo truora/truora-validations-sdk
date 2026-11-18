@@ -626,7 +626,7 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
         }
         await logger.logCamera(
             eventName: "camera_crashed",
-            level: .fatal,
+            level: .error,
             errorMessage: errorMessage,
             retention: .oneMonth,
             metadata: [
@@ -895,12 +895,16 @@ extension DocumentCapturePresenter: DocumentCaptureViewToPresenter {
 }
 
 extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
-    func photoUploadCompleted(side: DocumentCaptureSide) async {
+    func photoUploadCompleted(side: DocumentCaptureSide, uploadDurationMs: Int? = nil) async {
         showLoadingScreen = false
         await view?.resetCaptureInProgress()
 
         // Log doc capture succeeded
-        await interactor?.logDocCaptureSucceeded(side: side, validationId: validationId)
+        await interactor?.logDocCaptureSucceeded(
+            side: side,
+            validationId: validationId,
+            uploadDurationMs: uploadDurationMs
+        )
 
         switch side {
         case .front:
@@ -921,9 +925,24 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
         }
     }
 
-    func photoUploadFailed(side: DocumentCaptureSide, error: TruoraException) async {
+    func photoUploadFailed(
+        side: DocumentCaptureSide,
+        error: TruoraException,
+        level: LogLevel,
+        uploadDurationMs: Int? = nil
+    ) async {
         showLoadingScreen = false
         await view?.resetCaptureInProgress()
+
+        // Logged before the validation-error branch below, which returns early.
+        let errorMessage = error.errorDescription ?? "Unknown error"
+        await interactor?.logDocCaptureFailed(
+            side: side,
+            validationId: validationId,
+            errorMessage: errorMessage,
+            level: level,
+            uploadDurationMs: uploadDurationMs
+        )
 
         // Validation timeout - navigate to result screen to show failure
         if isValidationError(error) {
@@ -949,10 +968,6 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
         uploadState = .none
         feedbackType = useAutocapture ? .searching : .scanningManual
         lifecycleState = .ready
-
-        // Log doc capture failed
-        let errorMessage = error.errorDescription ?? "Unknown error"
-        await interactor?.logDocCaptureFailed(side: side, validationId: validationId, errorMessage: errorMessage)
 
         if side == .front {
             frontPhotoStatus = nil
@@ -982,7 +997,6 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
         uploadState = .uploading
         showLoadingScreen = true
         feedbackType = .scanning
-        evaluationErrorRetryCount = 0
 
         if side == .front {
             frontPhotoStatus = .loading
@@ -1025,9 +1039,8 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
         await view?.resetCaptureInProgress()
         lifecycleState = .stopped
 
-        // Log feedback failed
         let errorMessage = reason ?? "Document validation failed"
-        await interactor?.logDocFeedbackFailed(validationId: validationId, errorMessage: errorMessage)
+        await interactor?.logDocFeedbackRejected(validationId: validationId, errorMessage: errorMessage)
 
         // Reset detection timers for retry
         detectionState.resetDocumentDetectionTimer()
@@ -1076,6 +1089,13 @@ extension DocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
             )
             return
         }
+
+        // The retries are over (or not allowed): record the failure once, not once per attempt.
+        await interactor?.logDocFeedbackFailed(
+            validationId: validationId,
+            errorMessage: error.errorDescription ?? "Image evaluation failed",
+            level: error.failureLogLevel
+        )
 
         // Clear preview state since we're not showing feedback
         sideNeedingPreviewClear = nil

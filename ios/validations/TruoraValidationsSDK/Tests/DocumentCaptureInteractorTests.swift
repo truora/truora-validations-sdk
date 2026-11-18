@@ -79,6 +79,7 @@ import XCTest
         XCTAssertTrue(mockPresenter.photoUploadFailedCalled, "Should call upload failed")
         XCTAssertEqual(mockPresenter.lastFailedSide, .front)
         XCTAssertTrue(mockPresenter.lastError?.localizedDescription.contains("empty") ?? false)
+        XCTAssertEqual(mockPresenter.lastLevel, .error, "An SDK-side defect is an error")
     }
 
     func testUploadPhoto_backSide_withEmptyData_callsUploadFailed() async throws {
@@ -291,6 +292,168 @@ import XCTest
         XCTAssertEqual(mockPresenter.lastCompletedSide, .back)
     }
 
+    // MARK: - Upload Failure Level Tests
+
+    func testUploadPhoto_whenTheServerFailsWith5xx_reportsAnError() async throws {
+        let level = try await levelOfUpload(failingWith: TruoraAPIError.serverError(statusCode: 503, body: nil))
+
+        XCTAssertEqual(level, .error, "A 5xx is the server's fault")
+    }
+
+    func testUploadPhoto_whenTheServerRejectsWith4xx_reportsAWarning() async throws {
+        let level = try await levelOfUpload(failingWith: TruoraAPIError.serverError(statusCode: 400, body: "rejected"))
+
+        XCTAssertEqual(level, .warning)
+    }
+
+    func testUploadPhoto_whenThereIsNoConnectivity_reportsAWarning() async throws {
+        let level = try await levelOfUpload(failingWith: URLError(.notConnectedToInternet))
+
+        XCTAssertEqual(level, .warning)
+    }
+
+    func testUploadPhoto_whenTheResponseIsInvalid_reportsAnError() async throws {
+        let level = try await levelOfUpload(failingWith: TruoraAPIError.invalidResponse)
+
+        XCTAssertEqual(level, .error)
+    }
+
+    func testUploadPhoto_whenAnUnexpectedFailureOccurs_reportsAnError() async throws {
+        let error = NSError(domain: "UploadFailure", code: 1)
+        let level = try await levelOfUpload(failingWith: error)
+
+        XCTAssertEqual(level, .error)
+    }
+
+    /// Runs one front-side upload whose transport fails with `uploadError`.
+    /// Returns the level the presenter received.
+    private func levelOfUpload(failingWith uploadError: Error) async throws -> LogLevel? {
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
+        let interactor = DocumentCaptureInteractor(
+            presenter: mockPresenter,
+            uploadFileHandler: { _, _ in throw uploadError },
+            logger: MockTruoraLogger()
+        )
+        try await ValidationConfig.shared.configure(
+            apiKey: "test-api-key",
+            accountId: "test-account-id",
+            delegate: nil
+        )
+        interactor.setUploadUrls(
+            frontUploadUrl: "https://files.truora.com/front",
+            reverseUploadUrl: "https://files.truora.com/reverse"
+        )
+
+        interactor.uploadPhoto(side: .front, photoData: Data([0x01, 0x02]))
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
+
+        withExtendedLifetime(interactor) {}
+        return mockPresenter.lastLevel
+    }
+
+    // MARK: - Upload Duration Tests
+
+    func testUploadPhoto_whenTheUploadSucceeds_reportsHowLongItTook() async throws {
+        mockPresenter.photoUploadCompletedExpectation = expectation(description: "Upload completed called")
+        let interactor = DocumentCaptureInteractor(
+            presenter: mockPresenter,
+            uploadFileHandler: { _, _ in try await Task.sleep(nanoseconds: 50_000_000) },
+            logger: MockTruoraLogger()
+        )
+        try await ValidationConfig.shared.configure(
+            apiKey: "test-api-key",
+            accountId: "test-account-id",
+            delegate: nil
+        )
+        interactor.setUploadUrls(
+            frontUploadUrl: "https://files.truora.com/front",
+            reverseUploadUrl: "https://files.truora.com/reverse"
+        )
+
+        interactor.uploadPhoto(side: .front, photoData: Data([0x01, 0x02]))
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadCompletedExpectation)], timeout: 1.0)
+
+        withExtendedLifetime(interactor) {}
+        let uploadDurationMs = try XCTUnwrap(mockPresenter.lastUploadDurationMs)
+        XCTAssertGreaterThanOrEqual(uploadDurationMs, 50)
+    }
+
+    func testUploadPhoto_whenTheUploadFails_reportsHowLongItTook() async throws {
+        _ = try await levelOfUpload(failingWith: URLError(.notConnectedToInternet))
+
+        let uploadDurationMs = try XCTUnwrap(mockPresenter.lastUploadDurationMs)
+        XCTAssertGreaterThanOrEqual(uploadDurationMs, 0)
+    }
+
+    func testUploadPhoto_whenItFailsBeforeUploading_reportsNoUploadDuration() async throws {
+        mockPresenter.photoUploadFailedExpectation = expectation(description: "Upload failed called")
+
+        sut.uploadPhoto(side: .front, photoData: Data())
+        try await fulfillment(of: [XCTUnwrap(mockPresenter.photoUploadFailedExpectation)], timeout: 1.0)
+
+        XCTAssertTrue(mockPresenter.photoUploadFailedCalled)
+        XCTAssertNil(mockPresenter.lastUploadDurationMs)
+    }
+
+    func testLogDocCaptureSucceeded_withAnUploadDuration_addsItToTheEvent() async throws {
+        let logger = MockTruoraLogger()
+        let interactor = DocumentCaptureInteractor(presenter: mockPresenter, logger: logger)
+
+        await interactor.logDocCaptureSucceeded(
+            side: .front,
+            validationId: "dummy-validation-id",
+            uploadDurationMs: 1234
+        )
+
+        let event = try XCTUnwrap(logger.loggedEvents.last)
+        XCTAssertEqual(event.metadata["upload_duration_ms"], .int(1234))
+    }
+
+    func testLogDocCaptureSucceeded_withoutAnUploadDuration_leavesItOut() async throws {
+        let logger = MockTruoraLogger()
+        let interactor = DocumentCaptureInteractor(presenter: mockPresenter, logger: logger)
+
+        await interactor.logDocCaptureSucceeded(
+            side: .front,
+            validationId: "dummy-validation-id",
+            uploadDurationMs: nil
+        )
+
+        let event = try XCTUnwrap(logger.loggedEvents.last)
+        XCTAssertNil(event.metadata["upload_duration_ms"])
+    }
+
+    func testLogDocCaptureFailed_withAnUploadDuration_addsItToTheEvent() async throws {
+        let logger = MockTruoraLogger()
+        let interactor = DocumentCaptureInteractor(presenter: mockPresenter, logger: logger)
+
+        await interactor.logDocCaptureFailed(
+            side: .back,
+            validationId: "dummy-validation-id",
+            errorMessage: "Upload failed",
+            level: .warning,
+            uploadDurationMs: 1234
+        )
+
+        let event = try XCTUnwrap(logger.loggedEvents.last)
+        XCTAssertEqual(event.metadata["upload_duration_ms"], .int(1234))
+    }
+
+    // MARK: - Evaluation Error Mapping Tests
+
+    func testHandleEvaluationError_withAConnectivityFailure_isReportedAsANetworkError() async {
+        mockPresenter.imageEvaluationErroredExpectation = expectation(description: "Evaluation errored called")
+
+        // The session configuration rethrows transport failures as a bare URLError
+        await sut.handleEvaluationError(URLError(.notConnectedToInternet), side: .front)
+
+        await fulfillment(of: [mockPresenter.imageEvaluationErroredExpectation!], timeout: 1.0)
+        guard case .network(_, let underlyingError)? = mockPresenter.lastEvaluationError else {
+            return XCTFail("A URLError should be reported as a network error")
+        }
+        XCTAssertTrue(underlyingError is URLError)
+    }
+
     // MARK: - Kotlin ByteArray Conversion Tests
 
     func testConvertDataToKotlinByteArray_convertsCorrectly() async throws {
@@ -501,6 +664,8 @@ import XCTest
     private(set) var lastCompletedSide: DocumentCaptureSide?
     private(set) var lastFailedSide: DocumentCaptureSide?
     private(set) var lastError: TruoraException?
+    private(set) var lastLevel: LogLevel?
+    private(set) var lastUploadDurationMs: Int?
 
     private(set) var imageEvaluationStartedCalled = false
     private(set) var imageEvaluationSucceededCalled = false
@@ -519,16 +684,24 @@ import XCTest
 }
 
 extension MockDocumentCapturePresenter: DocumentCaptureInteractorToPresenter {
-    func photoUploadCompleted(side: DocumentCaptureSide) async {
+    func photoUploadCompleted(side: DocumentCaptureSide, uploadDurationMs: Int?) async {
         photoUploadCompletedCalled = true
         lastCompletedSide = side
+        lastUploadDurationMs = uploadDurationMs
         photoUploadCompletedExpectation?.fulfill()
     }
 
-    func photoUploadFailed(side: DocumentCaptureSide, error: TruoraException) async {
+    func photoUploadFailed(
+        side: DocumentCaptureSide,
+        error: TruoraException,
+        level: LogLevel,
+        uploadDurationMs: Int?
+    ) async {
         photoUploadFailedCalled = true
         lastFailedSide = side
         lastError = error
+        lastLevel = level
+        lastUploadDurationMs = uploadDurationMs
         photoUploadFailedExpectation?.fulfill()
     }
 

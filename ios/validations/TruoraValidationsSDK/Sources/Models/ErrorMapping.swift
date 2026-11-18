@@ -7,6 +7,8 @@
 
 import Foundation
 
+private let clientErrorStatusRange = 400 ..< 500
+
 // MARK: - TruoraAPIError to TruoraException Mapping
 
 extension TruoraAPIError {
@@ -104,7 +106,7 @@ extension CameraError {
         case .internalError(let message, _),
              .frameDetectionError(let message, _):
             .sdk(SDKError(type: .internalError, details: message))
-        case .cameraNotAvailable, .captureSessionError, .exportFailed:
+        case .cameraNotAvailable, .captureSessionError, .sessionNotReady, .exportFailed:
             .sdk(SDKError(type: .internalError, details: localizedDescription))
         }
     }
@@ -114,6 +116,30 @@ extension CameraError {
 // MARK: - Generic Error Mapping
 
 extension Error {
+    /// Log level for a failed network call.
+    var failureLogLevel: LogLevel {
+        if case .network(_, let underlyingError?) = self as? TruoraException {
+            return underlyingError.failureLogLevel
+        }
+
+        if self is URLError {
+            return .warning
+        }
+
+        guard let apiError = self as? TruoraAPIError else {
+            return .error
+        }
+
+        switch apiError {
+        case .networkError, .unauthorized:
+            return .warning
+        case .serverError(let statusCode, _):
+            return clientErrorStatusRange.contains(statusCode) ? .warning : .error
+        case .invalidURL, .decodingError, .invalidResponse:
+            return .error
+        }
+    }
+
     /// Attempts to convert any error to TruoraException.
     /// Falls back to SDK internal error for unknown error types.
     func toTruoraException() -> TruoraException {

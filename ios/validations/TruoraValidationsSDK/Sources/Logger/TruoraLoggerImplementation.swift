@@ -28,6 +28,11 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
     /// - Parameter config: Logger configuration
     /// - Throws: TruoraException if initialization fails
     public static func initialize(with config: LoggerConfiguration) async throws {
+        try await initialize(with: config, apiOutput: nil)
+    }
+
+    /// Initializes the logger with `apiOutput` in place of the configured Truora endpoint.
+    static func initialize(with config: LoggerConfiguration, apiOutput: LogBatchOutput?) async throws {
         var shouldInitialize = false
         lock.withLock {
             guard _instance == nil, initializationError == nil else {
@@ -38,7 +43,7 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
 
         // Initialize outside the lock to avoid issues with async/await
         if shouldInitialize {
-            let instance = TruoraLoggerImplementation(config: config)
+            let instance = TruoraLoggerImplementation(config: config, apiOutput: apiOutput)
             await instance.initializeAfterActorReady()
 
             lock.withLock {
@@ -76,6 +81,11 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
     /// Internal visibility for testing only.
     var eventBufferCount: Int {
         eventBuffer.count
+    }
+
+    /// Internal visibility for testing only.
+    var bufferedEvents: [SDKEvent] {
+        eventBuffer.map(\.event)
     }
 
     /// Returns the current count of events in the session buffer.
@@ -118,7 +128,8 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
         osVersion: UIDevice.current.systemVersion
     )
 
-    private var eventBuffer: [SDKEvent] = []
+    private var eventBuffer: [PendingEvent] = []
+    private var nextEventSequence = 0
     private var flushTask: Task<Void, Never>?
 
     // MARK: - Sampling
@@ -130,11 +141,11 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
     /// Holds all events for the current session in sampled-out sessions.
     /// Drained to eventBuffer on escalation (first ERROR/FATAL event).
     /// Capped at maxSessionBufferSize to bound memory usage.
-    private var sessionBuffer: [SDKEvent] = []
+    private var sessionBuffer: [PendingEvent] = []
     private let maxSessionBufferSize = 500
     private var notificationObservers: [NSObjectProtocol] = []
     private let consoleOutput: ConsoleLogOutput
-    private let apiOutput: APILogOutput?
+    private let apiOutput: LogBatchOutput?
 
     // Flush management
     private var flushFailureCount = 0
@@ -148,11 +159,13 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
 
     // MARK: - Initialization
 
-    private init(config: LoggerConfiguration) {
+    private init(config: LoggerConfiguration, apiOutput: LogBatchOutput?) {
         self.config = config
         self.consoleOutput = ConsoleLogOutput()
 
-        if config.enableApiOutput {
+        if let apiOutput {
+            self.apiOutput = apiOutput
+        } else if config.enableApiOutput {
             self.apiOutput = APILogOutput(
                 apiKey: config.apiKey,
                 endpoint: config.loggingEndpoint,
@@ -253,9 +266,12 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
             metadata: mergedMetadata
         )
 
+        let pending = PendingEvent(sequence: nextEventSequence, event: event, context: context)
+        nextEventSequence += 1
+
         if isSampledIn {
             // Sampled-in: normal path — add to event buffer
-            eventBuffer.append(event)
+            eventBuffer.append(pending)
 
             if config.enableConsoleOutput {
                 await consoleOutput.output(event: event)
@@ -271,7 +287,7 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
         if sessionBuffer.count >= maxSessionBufferSize {
             sessionBuffer.removeFirst()
         }
-        sessionBuffer.append(event)
+        sessionBuffer.append(pending)
 
         let isEscalationEvent = event.level == .error || event.level == .fatal
         guard isEscalationEvent else { return }
@@ -440,34 +456,39 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
         }
 
         // Copy buffer atomically (actor-isolated)
-        let eventsToFlush = eventBuffer
-        let context = await getValidationContext()
+        let pendingEvents = eventBuffer
         let deviceModel = await deviceInfo.model
         let osVersion = await deviceInfo.osVersion
 
         // Send to API if configured
         if let apiOutput {
-            let batch = SDKLog(
-                sdkVersion: config.sdkVersion,
-                platform: "ios",
-                timestamp: Int64(Date().timeIntervalSince1970 * 1000),
-                deviceModel: deviceModel,
-                osVersion: osVersion,
-                validationId: context.validationId,
-                accountId: context.accountId,
-                events: eventsToFlush
-            )
+            // Removing by sequence keeps events logged while a batch is in flight, even if another flush overlaps.
+            var sentSequences = Set<Int>()
+            for run in Self.batchesByContext(pendingEvents) {
+                let batch = SDKLog(
+                    sdkVersion: config.sdkVersion,
+                    platform: "ios",
+                    timestamp: Int64(Date().timeIntervalSince1970 * 1000),
+                    deviceModel: deviceModel,
+                    osVersion: osVersion,
+                    validationId: run.context.validationId,
+                    accountId: run.context.accountId,
+                    events: run.pending.map(\.event)
+                )
 
-            let success = await apiOutput.output(batch: batch)
-            if success {
-                eventBuffer.removeAll()
-                flushFailureCount = 0
-                lastFlushAttemptTime = nil
-            } else {
-                flushFailureCount += 1
-                lastFlushAttemptTime = Date()
-                debugLog("⚠️ [TruoraLogger] Flush failed (consecutive: \(flushFailureCount)). Retaining events.")
+                guard await apiOutput.output(batch: batch) else {
+                    eventBuffer.removeAll { sentSequences.contains($0.sequence) }
+                    flushFailureCount += 1
+                    lastFlushAttemptTime = Date()
+                    debugLog("⚠️ [TruoraLogger] Flush failed (consecutive: \(flushFailureCount)). Retaining events.")
+                    return
+                }
+                sentSequences.formUnion(run.pending.map(\.sequence))
             }
+
+            eventBuffer.removeAll { sentSequences.contains($0.sequence) }
+            flushFailureCount = 0
+            lastFlushAttemptTime = nil
         } else {
             // If no API output (e.g. testing/dev), just clear
             eventBuffer.removeAll()
@@ -503,13 +524,35 @@ public actor TruoraLoggerImplementation: TruoraLogger { // swiftlint:disable:thi
     // MARK: - Helpers
 
     /// Validation context structure to avoid large tuples
-    private struct ValidationContext {
+    private struct ValidationContext: Equatable {
         let validationId: String?
         let validationType: String?
         let accountId: String?
         let processId: String?
         let flowId: String?
         let clientId: String?
+    }
+
+    /// A buffered event with the context it was logged under, so its batch header matches it.
+    private struct PendingEvent {
+        let sequence: Int
+        let event: SDKEvent
+        let context: ValidationContext
+    }
+
+    /// Splits buffered events into runs logged under the same context, keeping their order.
+    private static func batchesByContext(
+        _ pendingEvents: [PendingEvent]
+    ) -> [(context: ValidationContext, pending: [PendingEvent])] {
+        var batches: [(context: ValidationContext, pending: [PendingEvent])] = []
+        for pending in pendingEvents {
+            if let last = batches.last, last.context == pending.context {
+                batches[batches.count - 1].pending.append(pending)
+            } else {
+                batches.append((context: pending.context, pending: [pending]))
+            }
+        }
+        return batches
     }
 
     /// Get validation context from ValidationConfig

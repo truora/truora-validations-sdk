@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Provides a centralized way to configure HTTP behavior across all networking components,
 /// including automatic retry with exponential backoff for transient errors.
-public struct TruoraSessionConfiguration {
+public struct TruoraSessionConfiguration: Sendable {
     // MARK: - Configuration Properties
 
     /// Timeout for waiting for data between packets (resets on each received packet).

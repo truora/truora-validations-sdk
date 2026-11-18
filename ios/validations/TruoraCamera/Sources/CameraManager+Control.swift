@@ -17,35 +17,47 @@ extension CameraManager {
     /// The preview layer freezes on the last frame, preserving the visual state.
     /// Use this during upload to save resources while keeping the UI intact.
     func pauseCamera() {
-        captureSession?.stopRunning()
+        guard let captureSession else { return }
+        Self.sessionQueue.async {
+            captureSession.stopRunning()
+        }
     }
 
     /// Resumes a previously paused camera session.
     /// This does not reconfigure inputs/outputs or preview layer; it only restarts the session.
     func resumeCamera() {
+        assert(Thread.isMainThread, "pendingResumes is main thread only")
         guard cameraIsSetup, let captureSession else { return }
-        guard !captureSession.isRunning else { return }
 
-        DispatchQueue.global(qos: .userInteractive).async {
-            captureSession.startRunning()
+        pendingResumes += 1
+        Self.sessionQueue.async { [weak self] in
+            if !captureSession.isRunning {
+                captureSession.startRunning()
+            }
+            DispatchQueue.main.async { self?.pendingResumes -= 1 }
         }
     }
 
     func stopCamera() {
-        pauseCamera()
+        startingSession = nil
+        startingPreview = nil
+        startInterruptionTimeout?.cancel()
+        removeSessionObservers()
         cleanupGestureRecognizers()
 
         // Remove preview layer from view
         videoPreviewLayer?.removeFromSuperlayer()
         videoPreviewLayer = nil
 
-        // Clean up session and outputs
         if let session = captureSession {
-            for input in session.inputs {
-                session.removeInput(input)
-            }
-            for output in session.outputs {
-                session.removeOutput(output)
+            Self.sessionQueue.async {
+                session.stopRunning()
+                for input in session.inputs {
+                    session.removeInput(input)
+                }
+                for output in session.outputs {
+                    session.removeOutput(output)
+                }
             }
         }
         captureSession = nil
@@ -85,6 +97,12 @@ extension CameraManager {
         }
 
         guard isSessionRunning() else {
+            // Interrupted or resuming sessions start by themselves, so they must not be torn down.
+            let startsByItself = captureSession.map { pendingResumes > 0 || $0.isInterrupted } ?? false
+            let error: CameraError = startsByItself
+                ? .sessionNotReady
+                : .captureSessionError(reason: "Session is not running")
+            self.delegate?.reportError(error: error)
             return
         }
 

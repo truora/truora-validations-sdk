@@ -131,9 +131,10 @@ extension CameraView: AVCapturePhotoCaptureDelegate {
         }
 
         if let error {
-            let cameraError =
-                CameraError
-                    .internalError("Error unable to take picture:  \(error.localizedDescription)")
+            let cameraError = CameraError.internalError(
+                "Error unable to take picture:  \(error.localizedDescription) (\(error.diagnosticCode))",
+                underlyingError: error
+            )
             DispatchQueue.main.async { [weak self] in
                 self?.delegate?.reportError(error: cameraError)
             }
@@ -179,9 +180,10 @@ extension CameraView: AVCaptureFileOutputRecordingDelegate {
                 return
             }
 
-            let cameraError =
-                CameraError
-                    .internalError("Error unable to record video:  \(error.localizedDescription)")
+            let cameraError = CameraError.internalError(
+                "Error unable to record video:  \(error.localizedDescription) (\(error.diagnosticCode))",
+                underlyingError: error
+            )
             DispatchQueue.main.async { [weak self] in
                 self?.delegate?.reportError(error: cameraError)
             }

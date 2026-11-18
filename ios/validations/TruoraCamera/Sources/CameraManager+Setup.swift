@@ -41,10 +41,11 @@ extension CameraManager {
             debugLog("⚠️ CameraManager: Camera permission not determined")
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
+                    guard let self, self.cameraIsSetup, self.captureSession == nil else { return }
                     if granted {
-                        self?.configureSession(view: view, cameraOutputMode: cameraOutputMode)
+                        self.configureSession(view: view, cameraOutputMode: cameraOutputMode)
                     } else {
-                        self?.delegate?.reportError(error: .permissionDenied(status: .denied))
+                        self.delegate?.reportError(error: .permissionDenied(status: .denied))
                     }
                 }
             }
@@ -79,9 +80,8 @@ extension CameraManager {
             debugLog(
                 "❌ CameraManager: Failed to setup camera - input: \(inputAdded), output: \(outputAdded)"
             )
-            cameraIsSetup = false // Reset since setup failed
-            let cameraError = CameraError.internalError("Failed to configure camera")
-            delegate?.reportError(error: cameraError)
+            // The failing step already reported its error.
+            cameraIsSetup = false
             return
         }
 
@@ -232,31 +232,119 @@ extension CameraManager {
 
         photoPreview.layer.addSublayer(videoPreviewLayer)
 
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            self?.captureSession?.startRunning()
+        startingSession = captureSession
+        startingPreview = photoPreview
+        observeSessionStart(captureSession)
 
-            // Wait for session to start and connections to be established
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                guard let self else { return }
+        Self.sessionQueue.async { [weak self] in
+            // Blocks until the session runs or fails; failure arrives as a runtime error.
+            captureSession.startRunning()
+            DispatchQueue.main.async {
+                self?.evaluateSessionStart(captureSession)
+            }
+        }
+    }
 
-                guard self.captureSession?.isRunning == true else {
-                    self.cameraIsSetup = false // Reset since session failed to start
-                    let cameraError = CameraError.internalError("Camera session failed to start")
-                    self.delegate?.reportError(error: cameraError)
-                    return
-                }
+    private func observeSessionStart(_ session: AVCaptureSession) {
+        removeSessionObservers()
+        let center = NotificationCenter.default
+        sessionObservers = [
+            // Also fires when an interrupted session restarts by itself.
+            center.addObserver(
+                forName: AVCaptureSession.didStartRunningNotification, object: session, queue: .main
+            ) { [weak self] notification in
+                guard let session = notification.object as? AVCaptureSession else { return }
+                self?.evaluateSessionStart(session)
+            },
+            center.addObserver(
+                forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let session = notification.object as? AVCaptureSession,
+                      self.startingSession === session else { return }
+                let error = notification.userInfo?[AVCaptureSessionErrorKey] as? Error
+                self.failSessionStart(detail: error?.diagnosticCode, underlyingError: error)
+            },
+            center.addObserver(
+                forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: .main
+            ) { [weak self] notification in
+                guard let session = notification.object as? AVCaptureSession else { return }
+                let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int ?? 0
+                self?.scheduleStartInterruptionTimeout(session, reason: reason)
+            }
+        ]
+    }
 
-                self.videoPreviewLayer?.frame = photoPreview.bounds
-                // Note: cameraIsSetup is already true (set synchronously in setupCamera)
-                self.attachFocus(photoPreview)
+    private func scheduleStartInterruptionTimeout(_ session: AVCaptureSession, reason: Int) {
+        // Only the video (face) screen retries a failed start; the others keep waiting.
+        guard cameraOutputMode == .video else { return }
 
-                if self.cameraOutputMode == .video {
-                    self.waitForVideoConnectionReady()
-                } else {
-                    self.delegate?.cameraReady()
+        startInterruptionTimeout?.cancel()
+        // Backgrounded: the session restarts when the app returns, so it gets no timeout.
+        let background = AVCaptureSession.InterruptionReason.videoDeviceNotAvailableInBackground.rawValue
+        guard reason != background else { return }
+
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.startingSession === session else { return }
+            if session.isInterrupted {
+                self.failSessionStart(detail: "interrupted, reason \(reason)")
+            } else if session.isRunning {
+                self.completeSessionStart()
+            } else {
+                // The interruption just ended and iOS may still be restarting the session.
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.startRecoveryGrace) { [weak self] in
+                    self?.evaluateSessionStart(session)
                 }
             }
         }
+        startInterruptionTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.maxStartInterruption, execute: timeout)
+    }
+
+    func removeSessionObservers() {
+        for observer in sessionObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        sessionObservers = []
+    }
+
+    /// An interrupted session is not a failure: it restarts by itself.
+    private func evaluateSessionStart(_ session: AVCaptureSession) {
+        guard startingSession === session else { return }
+
+        if session.isRunning {
+            completeSessionStart()
+        } else if !session.isInterrupted {
+            failSessionStart()
+        }
+    }
+
+    private func completeSessionStart() {
+        startingSession = nil
+        // A gone preview means the screen is gone, so there is nobody to notify.
+        guard let preview = startingPreview else { return }
+        startingPreview = nil
+
+        videoPreviewLayer?.frame = preview.bounds
+        attachFocus(preview)
+
+        if cameraOutputMode == .video {
+            waitForVideoConnectionReady()
+        } else {
+            delegate?.cameraReady()
+        }
+    }
+
+    private func failSessionStart(detail: String? = nil, underlyingError: Error? = nil) {
+        startingSession = nil
+        startingPreview = nil
+        cameraIsSetup = false
+
+        var message = "Camera session failed to start"
+        if let detail {
+            message += " (\(detail))"
+        }
+        delegate?.reportError(error: .internalError(message, underlyingError: underlyingError))
     }
 
     func calculateVisibleCameraFrame(for view: UIView) -> CGRect {

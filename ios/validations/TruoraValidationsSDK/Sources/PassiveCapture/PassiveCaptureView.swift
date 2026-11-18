@@ -95,8 +95,12 @@ struct PassiveCaptureView: View {
                 title: Text(TruoraLocalization.string(forKey: LocalizationKeys.commonError)),
                 message: Text(viewModel.errorMessage ?? ""),
                 dismissButton: .default(
-                    Text(TruoraLocalization.string(forKey: LocalizationKeys.commonOk))
-                )
+                    Text(TruoraLocalization.string(
+                        forKey: viewModel.isErrorRetryable
+                            ? LocalizationKeys.passiveCaptureTryAgain
+                            : LocalizationKeys.commonOk
+                    ))
+                ) { viewModel.handleEvent(.errorDismissed) }
             )
         }
         .onAppear {

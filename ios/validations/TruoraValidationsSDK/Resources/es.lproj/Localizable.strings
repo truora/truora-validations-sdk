@@ -132,6 +132,9 @@
 "camera_error_capture_failed" = "No se pudo tomar la foto";
 "camera_error_view_not_available" = "Vista de cámara no disponible";
 "camera_error_not_ready" = "Cámara no lista";
+"camera_error_storage_full" = "Tu dispositivo no tiene espacio suficiente. Libera espacio e inténtalo de nuevo.";
+"camera_error_setup_failed" = "No pudimos abrir la cámara. Cierra otras apps que la estén usando e inténtalo de nuevo.";
+"camera_error_recording_failed" = "No pudimos grabar el video. Inténtalo de nuevo.";
 
 /* Countries */
 "country_all" = "Todos";

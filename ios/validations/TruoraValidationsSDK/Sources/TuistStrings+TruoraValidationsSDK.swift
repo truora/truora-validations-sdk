@@ -19,6 +19,12 @@ public enum TruoraValidationsSDKStrings: Sendable {
   public static let cameraErrorInitializationFailed = TruoraValidationsSDKStrings.tr("Localizable", "camera_error_initialization_failed")
   /// Camera not ready
   public static let cameraErrorNotReady = TruoraValidationsSDKStrings.tr("Localizable", "camera_error_not_ready")
+  /// We couldn't record the video. Please try again.
+  public static let cameraErrorRecordingFailed = TruoraValidationsSDKStrings.tr("Localizable", "camera_error_recording_failed")
+  /// We couldn't open the camera. Close any other app using it and try again.
+  public static let cameraErrorSetupFailed = TruoraValidationsSDKStrings.tr("Localizable", "camera_error_setup_failed")
+  /// Your device is out of storage. Free up some space and try again.
+  public static let cameraErrorStorageFull = TruoraValidationsSDKStrings.tr("Localizable", "camera_error_storage_full")
   /// Camera view not available
   public static let cameraErrorViewNotAvailable = TruoraValidationsSDKStrings.tr("Localizable", "camera_error_view_not_available")
   /// To continue, please allow camera access in your device settings.

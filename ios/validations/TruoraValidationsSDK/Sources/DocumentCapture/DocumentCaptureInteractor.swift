@@ -45,23 +45,22 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
         }
 
         guard !photoData.isEmpty else {
-            Task {
-                await presenter.photoUploadFailed(
-                    side: side,
-                    error: .sdk(SDKError(type: .uploadFailed, details: "Photo data is empty"))
-                )
-            }
+            reportPhotoUploadFailure(
+                to: presenter,
+                side: side,
+                error: SDKError(type: .uploadFailed, details: "Photo data is empty"),
+                level: .error
+            )
             return
         }
 
         guard let apiClient = ValidationConfig.shared.apiClient else {
-            Task {
-                let details = "API client not configured"
-                await presenter.photoUploadFailed(
-                    side: side,
-                    error: .sdk(SDKError(type: .invalidConfiguration, details: details))
-                )
-            }
+            reportPhotoUploadFailure(
+                to: presenter,
+                side: side,
+                error: SDKError(type: .invalidConfiguration, details: "API client not configured"),
+                level: .error
+            )
             return
         }
 
@@ -71,36 +70,32 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
         }
 
         guard let uploadUrl, !uploadUrl.isEmpty else {
-            Task {
-                await presenter.photoUploadFailed(
-                    side: side,
-                    error: .sdk(SDKError(type: .uploadFailed, details: "No upload URL provided"))
-                )
-            }
+            reportPhotoUploadFailure(
+                to: presenter,
+                side: side,
+                error: SDKError(type: .uploadFailed, details: "No upload URL provided"),
+                level: .error
+            )
             return
         }
 
         if !UploadUrlValidator.isTruoraFilesUploadUrl(uploadUrl) {
-            Task {
-                await presenter.photoUploadFailed(
-                    side: side,
-                    error: .sdk(SDKError(type: .uploadFailed, details: "Invalid file upload link"))
-                )
-            }
+            reportPhotoUploadFailure(
+                to: presenter,
+                side: side,
+                error: SDKError(type: .uploadFailed, details: "Invalid file upload link"),
+                level: .error
+            )
             return
         }
 
         // Check if upload URL has expired (validation timeout)
         if UploadUrlValidator.isExpired(uploadUrl) {
-            Task {
-                await presenter.photoUploadFailed(
-                    side: side,
-                    error: .sdk(SDKError(
-                        type: .validationError,
-                        details: "Validation expired. The time limit was exceeded."
-                    ))
-                )
-            }
+            let error = SDKError(
+                type: .validationError,
+                details: "Validation expired. The time limit was exceeded."
+            )
+            reportPhotoUploadFailure(to: presenter, side: side, error: error, level: .warning)
             return
         }
         performUpload(uploadUrl: uploadUrl, photoData: photoData, side: side, apiClient: apiClient)
@@ -158,6 +153,7 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
     ) {
         uploadTask?.cancel()
         uploadTask = Task { [weak self] in
+            let uploadStart = ServerClock.monotonicNow()
             do {
                 if let uploadFileHandler = self?.uploadFileHandler {
                     try await uploadFileHandler(uploadUrl, photoData)
@@ -173,13 +169,18 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
                     return
                 }
 
-                await self?.presenter?.photoUploadCompleted(side: side)
+                await self?.presenter?.photoUploadCompleted(
+                    side: side,
+                    uploadDurationMs: ServerClock.millisecondsSince(uploadStart)
+                )
             } catch is CancellationError {
                 // No-op
             } catch {
                 await self?.presenter?.photoUploadFailed(
                     side: side,
-                    error: .sdk(SDKError(type: .uploadFailed, details: error.localizedDescription))
+                    error: .sdk(SDKError(type: .uploadFailed, details: error.localizedDescription)),
+                    level: error.failureLogLevel,
+                    uploadDurationMs: ServerClock.millisecondsSince(uploadStart)
                 )
             }
         }
@@ -187,7 +188,7 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
 
     // MARK: - Logging Methods
 
-    func logDocCaptureSucceeded(side: DocumentCaptureSide, validationId: String) async {
+    func logDocCaptureSucceeded(side: DocumentCaptureSide, validationId: String, uploadDurationMs: Int?) async {
         let eventName = side == .front
             ? "doc_front_capture_succeeded"
             : "doc_reverse_capture_succeeded"
@@ -196,26 +197,26 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
             level: .info,
             errorMessage: nil,
             retention: .oneWeek,
-            metadata: [
-                "validation_type": Self.validationType,
-                "validation_id": validationId
-            ]
+            metadata: captureMetadata(validationId: validationId, uploadDurationMs: uploadDurationMs)
         )
     }
 
-    func logDocCaptureFailed(side: DocumentCaptureSide, validationId: String, errorMessage: String) async {
+    func logDocCaptureFailed(
+        side: DocumentCaptureSide,
+        validationId: String,
+        errorMessage: String,
+        level: LogLevel,
+        uploadDurationMs: Int?
+    ) async {
         let eventName = side == .front
             ? "doc_front_capture_failed"
             : "doc_reverse_capture_failed"
         await logger.logML(
             eventName: eventName,
-            level: .error,
+            level: level,
             errorMessage: errorMessage,
             retention: .oneWeek,
-            metadata: [
-                "validation_type": Self.validationType,
-                "validation_id": validationId
-            ]
+            metadata: captureMetadata(validationId: validationId, uploadDurationMs: uploadDurationMs)
         )
     }
 
@@ -237,10 +238,25 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
         )
     }
 
-    func logDocFeedbackFailed(validationId: String, errorMessage: String) async {
+    /// The evaluation request itself failed (not a quality rejection).
+    func logDocFeedbackFailed(validationId: String, errorMessage: String, level: LogLevel) async {
         await logger.logFeedback(
             eventName: "doc_feedback_failed",
-            level: .error,
+            level: level,
+            errorMessage: errorMessage,
+            retention: .oneMonth,
+            metadata: [
+                "validation_type": Self.validationType,
+                "validation_id": validationId
+            ]
+        )
+    }
+
+    /// The evaluation service rejected the image for quality.
+    func logDocFeedbackRejected(validationId: String, errorMessage: String) async {
+        await logger.logFeedback(
+            eventName: "doc_feedback_rejected",
+            level: .info,
             errorMessage: errorMessage,
             retention: .oneMonth,
             metadata: [
@@ -252,6 +268,28 @@ extension DocumentCaptureInteractor: DocumentCapturePresenterToInteractor {
 }
 
 private extension DocumentCaptureInteractor {
+    func reportPhotoUploadFailure(
+        to presenter: DocumentCaptureInteractorToPresenter,
+        side: DocumentCaptureSide,
+        error: SDKError,
+        level: LogLevel
+    ) {
+        Task {
+            await presenter.photoUploadFailed(side: side, error: .sdk(error), level: level, uploadDurationMs: nil)
+        }
+    }
+
+    func captureMetadata(validationId: String, uploadDurationMs: Int?) -> [String: Any] {
+        var metadata: [String: Any] = [
+            "validation_type": Self.validationType,
+            "validation_id": validationId
+        ]
+        if let uploadDurationMs {
+            metadata["upload_duration_ms"] = uploadDurationMs
+        }
+        return metadata
+    }
+
     func buildImageEvaluationRequest(
         side: DocumentCaptureSide,
         photoData: Data,
@@ -368,11 +406,16 @@ private extension DocumentCaptureInteractor {
             }
         }
     }
+}
 
-    private func handleEvaluationError(_ error: Error, side: DocumentCaptureSide) async {
+extension DocumentCaptureInteractor {
+    func handleEvaluationError(_ error: Error, side: DocumentCaptureSide) async {
         let truoraError: TruoraException
         if let existing = error as? TruoraException {
             truoraError = existing
+        } else if error is URLError {
+            // Transport failures arrive as a bare URLError, not as a TruoraAPIError.
+            truoraError = .network(message: error.localizedDescription, underlyingError: error)
         } else if let apiError = error as? TruoraAPIError {
             let fallbackMsg = "Image evaluation API error: \(apiError)"
             let errorMessage = apiError.errorDescription ?? fallbackMsg

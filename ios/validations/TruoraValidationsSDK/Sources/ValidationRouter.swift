@@ -178,6 +178,8 @@ private var invoicePickerDelegateKey: UInt8 = 0
     }
 
     func dismissFlow() {
+        // The logger stamps this id on every event, so the next flow must start without it.
+        ValidationConfig.shared.clearValidationId()
         enrollmentTask?.cancel()
         enrollmentTask = nil
         guard let navController = navigationController else { return }

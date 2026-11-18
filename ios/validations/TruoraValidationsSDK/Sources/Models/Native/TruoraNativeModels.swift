@@ -72,10 +72,18 @@ struct NativeValidationRequest: Codable {
 struct NativeValidationCreateResponse: Codable {
     let validationId: String
     let instructions: NativeValidationInstructions?
+    let creationDate: String?
 
     enum CodingKeys: String, CodingKey {
         case validationId = "validation_id"
         case instructions
+        case creationDate = "creation_date"
+    }
+
+    init(validationId: String, instructions: NativeValidationInstructions?, creationDate: String? = nil) {
+        self.validationId = validationId
+        self.instructions = instructions
+        self.creationDate = creationDate
     }
 }
 

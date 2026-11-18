@@ -83,15 +83,27 @@ protocol DocumentCapturePresenterToInteractor: AnyObject {
         documentType: String,
         validationId: String
     )
-    func logDocCaptureSucceeded(side: DocumentCaptureSide, validationId: String) async
-    func logDocCaptureFailed(side: DocumentCaptureSide, validationId: String, errorMessage: String) async
+    func logDocCaptureSucceeded(side: DocumentCaptureSide, validationId: String, uploadDurationMs: Int?) async
+    func logDocCaptureFailed(
+        side: DocumentCaptureSide,
+        validationId: String,
+        errorMessage: String,
+        level: LogLevel,
+        uploadDurationMs: Int?
+    ) async
     func logDocFeedbackSucceeded(validationId: String, result: String, reason: String?) async
-    func logDocFeedbackFailed(validationId: String, errorMessage: String) async
+    func logDocFeedbackRejected(validationId: String, errorMessage: String) async
+    func logDocFeedbackFailed(validationId: String, errorMessage: String, level: LogLevel) async
 }
 
 protocol DocumentCaptureInteractorToPresenter: AnyObject {
-    func photoUploadCompleted(side: DocumentCaptureSide) async
-    func photoUploadFailed(side: DocumentCaptureSide, error: TruoraException) async
+    func photoUploadCompleted(side: DocumentCaptureSide, uploadDurationMs: Int?) async
+    func photoUploadFailed(
+        side: DocumentCaptureSide,
+        error: TruoraException,
+        level: LogLevel,
+        uploadDurationMs: Int?
+    ) async
 
     func imageEvaluationStarted(side: DocumentCaptureSide, previewData: Data) async
     func imageEvaluationSucceeded(side: DocumentCaptureSide, previewData: Data) async

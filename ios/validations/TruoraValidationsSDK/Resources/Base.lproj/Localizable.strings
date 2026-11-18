@@ -132,6 +132,9 @@
 "camera_error_capture_failed" = "Unable to take picture";
 "camera_error_view_not_available" = "Camera view not available";
 "camera_error_not_ready" = "Camera not ready";
+"camera_error_storage_full" = "Your device is out of storage. Free up some space and try again.";
+"camera_error_setup_failed" = "We couldn't open the camera. Close any other app using it and try again.";
+"camera_error_recording_failed" = "We couldn't record the video. Please try again.";
 
 /* Countries */
 "country_all" = "All";

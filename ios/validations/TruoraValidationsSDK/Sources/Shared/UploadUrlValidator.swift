@@ -28,7 +28,7 @@ enum UploadUrlValidator {
     /// - Returns: `true` if the URL expired, `false` if valid or undetermined
     static func isExpired(
         _ urlString: String,
-        currentTimestamp: TimeInterval = Date().timeIntervalSince1970
+        currentTimestamp: TimeInterval = ServerClock.now()
     ) -> Bool {
         guard let expirationTimestamp = getExpirationTimestamp(from: urlString) else {
             return false

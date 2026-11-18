@@ -74,6 +74,19 @@ class CameraManager: NSObject {
 
     let videoDataOutputQueue = DispatchQueue(label: "com.truora.camera.videoDataOutput")
 
+    /// Shared so a new screen's camera starts only after the previous screen's camera stopped.
+    static let sessionQueue = DispatchQueue(label: "com.truora.camera.session")
+
+    /// Session whose start is not reported yet. Main thread only.
+    var startingSession: AVCaptureSession?
+    weak var startingPreview: UIView?
+    /// Resumes queued but not finished. Main thread only.
+    var pendingResumes = 0
+    var sessionObservers: [NSObjectProtocol] = []
+    var startInterruptionTimeout: DispatchWorkItem?
+    static let maxStartInterruption: TimeInterval = 5
+    static let startRecoveryGrace: TimeInterval = 0.5
+
     /// Cached date formatter for performance
     static let fileDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -122,6 +135,7 @@ class CameraManager: NSObject {
 
     deinit {
         stopUITestMock()
+        removeSessionObservers()
     }
 
     /// Stops the UI test mock timer and cleans up resources.

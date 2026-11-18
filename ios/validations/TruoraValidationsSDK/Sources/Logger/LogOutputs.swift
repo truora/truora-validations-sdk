@@ -21,8 +21,13 @@ actor ConsoleLogOutput {
 
 // MARK: - API Output
 
+/// Where the logger sends its batches; tests swap in a fake one.
+protocol LogBatchOutput: Sendable {
+    func output(batch: SDKLog) async -> Bool
+}
+
 /// API output for sending to Truora endpoint
-actor APILogOutput {
+actor APILogOutput: LogBatchOutput {
     private let client: SdkLogClient
     private let sdkVersion: String
 

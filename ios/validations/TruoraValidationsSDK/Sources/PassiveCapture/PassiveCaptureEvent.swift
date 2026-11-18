@@ -18,5 +18,6 @@ enum PassiveCaptureEvent {
     case helpRequested
     case openSettingsRequested
     case settingsPromptDismissed
+    case errorDismissed
     case feedbackChanged(FeedbackType)
 }

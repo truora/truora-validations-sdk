@@ -19,6 +19,7 @@ final class TruoraLoggerTests: XCTestCase {
     override func tearDown() async throws {
         // Clean up after each test
         await TruoraLoggerImplementation.reset()
+        ValidationConfig.shared.reset()
         try await super.tearDown()
     }
 
@@ -359,9 +360,113 @@ final class TruoraLoggerTests: XCTestCase {
         let sessionCount = await logger.sessionBufferCount
         XCTAssertEqual(sessionCount, 0) // escalation drains sessionBuffer; post-error events go to eventBuffer
     }
+
+    // MARK: - Batch Context Tests
+
+    func testFlush_sendsOneBatchPerValidationId() async throws {
+        let output = CapturingLogOutput()
+        let logger = try await makeLogger(sendingTo: output)
+
+        ValidationConfig.shared.updateValidationId("dummy-validation-a")
+        await logInfo(logger, "first")
+        await logInfo(logger, "second")
+        ValidationConfig.shared.updateValidationId("dummy-validation-b")
+        await logInfo(logger, "third")
+        await logger.flush()
+
+        let batches = await output.batches
+        XCTAssertEqual(batches.map(\.validationId), ["dummy-validation-a", "dummy-validation-b"])
+        XCTAssertEqual(batches.map { $0.events.map(\.eventName) }, [["first", "second"], ["third"]])
+    }
+
+    func testFlush_afterTheValidationIdIsCleared_keepsItInThePendingBatch() async throws {
+        let output = CapturingLogOutput()
+        let logger = try await makeLogger(sendingTo: output)
+
+        ValidationConfig.shared.updateValidationId("dummy-validation-a")
+        await logInfo(logger, "pending")
+        ValidationConfig.shared.reset()
+        await logger.flush()
+
+        let batches = await output.batches
+        XCTAssertEqual(batches.map(\.validationId), ["dummy-validation-a"])
+    }
+
+    func testFlush_returningToAnEarlierValidationId_startsANewBatch() async throws {
+        let output = CapturingLogOutput()
+        let logger = try await makeLogger(sendingTo: output)
+
+        ValidationConfig.shared.updateValidationId("dummy-validation-a")
+        await logInfo(logger, "a1")
+        ValidationConfig.shared.updateValidationId("dummy-validation-b")
+        await logInfo(logger, "b1")
+        ValidationConfig.shared.updateValidationId("dummy-validation-a")
+        await logInfo(logger, "a2")
+        await logger.flush()
+
+        let batches = await output.batches
+        XCTAssertEqual(
+            batches.map(\.validationId),
+            ["dummy-validation-a", "dummy-validation-b", "dummy-validation-a"]
+        )
+        XCTAssertEqual(batches.map { $0.events.map(\.eventName) }, [["a1"], ["b1"], ["a2"]])
+    }
+
+    func testFlush_whenALaterBatchFails_keepsOnlyItsEvents() async throws {
+        let output = CapturingLogOutput(failingBatchIndexes: [1])
+        let logger = try await makeLogger(sendingTo: output)
+
+        ValidationConfig.shared.updateValidationId("dummy-validation-a")
+        await logInfo(logger, "sent")
+        ValidationConfig.shared.updateValidationId("dummy-validation-b")
+        await logInfo(logger, "unsent")
+        await logger.flush()
+
+        let bufferCount = await logger.eventBufferCount
+        XCTAssertEqual(bufferCount, 1, "Only the events of the failed batch stay buffered")
+    }
+
+    private func makeLogger(sendingTo output: CapturingLogOutput) async throws -> TruoraLoggerImplementation {
+        ValidationConfig.shared.reset()
+        let config = LoggerConfiguration(
+            apiKey: "dummy-api-key",
+            sdkVersion: "1.0.0",
+            sampleRate: 1.0,
+            enableConsoleOutput: false,
+            enableApiOutput: false
+        )
+        try await TruoraLoggerImplementation.initialize(with: config, apiOutput: output)
+        return try TruoraLoggerImplementation.shared
+    }
+
+    private func logInfo(_ logger: TruoraLoggerImplementation, _ eventName: String) async {
+        await logger.logEvent(
+            eventType: .view,
+            eventName: eventName,
+            level: .info,
+            errorMessage: nil,
+            retention: .oneWeek,
+            metadata: nil,
+            stackTrace: nil
+        )
+    }
 }
 
 // MARK: - Mock Implementations
+
+actor CapturingLogOutput: LogBatchOutput {
+    private(set) var batches: [SDKLog] = []
+    private let failingBatchIndexes: Set<Int>
+
+    init(failingBatchIndexes: Set<Int> = []) {
+        self.failingBatchIndexes = failingBatchIndexes
+    }
+
+    func output(batch: SDKLog) async -> Bool {
+        batches.append(batch)
+        return !failingBatchIndexes.contains(batches.count - 1)
+    }
+}
 
 final class MockTruoraLogger: TruoraLogger, @unchecked Sendable {
     private let lock = NSLock()

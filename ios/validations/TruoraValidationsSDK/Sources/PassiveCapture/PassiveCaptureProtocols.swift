@@ -34,6 +34,7 @@ import UIKit
         isActivelyRecording: Bool
     )
     func showError(_ message: String)
+    func showRetryableError(_ message: String)
 
     /// Resets the recording in progress flag, re-enabling the record button
     func resetRecordingInProgress()
@@ -56,14 +57,14 @@ protocol PassiveCaptureViewToPresenter: AnyObject {
     func lastFrameCaptured(frameData: Data) async
     func detectionsReceived(_ results: [DetectionResult]) async
     func handleCaptureEvent(_ event: PassiveCaptureEvent) async
-    func cameraError(_ errorMessage: String) async
+    func cameraError(_ error: CameraError) async
 }
 
 protocol PassiveCapturePresenterToInteractor: AnyObject {
     func setUploadUrl(_ uploadUrl: String?)
     func uploadVideo(_ videoData: Data)
-    func logFaceCaptureSucceeded() async
-    func logFaceCaptureFailed(errorMessage: String) async
+    func logFaceCaptureSucceeded(uploadDurationMs: Int?) async
+    func logFaceCaptureFailed(errorMessage: String, level: LogLevel, uploadDurationMs: Int?) async
     func logFaceQualityGatePassed(timeToReadyMs: Int) async
     func logFaceQualityGateTimeout(lastHint: String) async
     func logFaceVideoManualModeForced(triggerReason: FaceVideoManualTriggerReason) async
@@ -77,6 +78,6 @@ protocol PassiveCapturePresenterToInteractor: AnyObject {
 }
 
 protocol PassiveCaptureInteractorToPresenter: AnyObject {
-    func videoUploadCompleted(validationId: String) async
-    func videoUploadFailed(_ error: TruoraException) async
+    func videoUploadCompleted(validationId: String, uploadDurationMs: Int?) async
+    func videoUploadFailed(_ error: TruoraException, level: LogLevel, uploadDurationMs: Int?) async
 }
