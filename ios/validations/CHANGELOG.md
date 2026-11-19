@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-11-19
+
+### Changed
+- **Breaking:** Minimum iOS version raised from 13.0 to 15.0 for CocoaPods and Swift Package Manager.
+- Record upload duration in document and face capture logs.
+- Give validation uploads idle and size-based timeouts.
+- Classify camera recording failures by cause.
+- Prevent duplicate face video uploads.
+- Fix camera start failures and recover the face screen.
+- Log expected SDK failures below error level.
+- Use server time for document link expiry.
+
 ## [1.3.4-alpha.2] - 2026-11-19
 
 ### Changed

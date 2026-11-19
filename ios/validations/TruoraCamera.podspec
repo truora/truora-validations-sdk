@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = "TruoraCamera"
-  s.version          = "1.3.4-alpha.2"
+  s.version          = "1.3.4"
   s.summary          = "Truora's camera and face detection module for identity verification"
   s.description      = <<-DESC
 TruoraCamera is an AVFoundation-based camera with on-device face detection (Vision/CoreML),
