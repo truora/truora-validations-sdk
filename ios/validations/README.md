@@ -68,7 +68,7 @@ ios/validations/
 #### Required for any build
 
 - Xcode 16+. We recommend always using the latest Xcode version.
-- iOS 13.0+
+- iOS 15.0+
 - Tuist 4.0+
 - CocoaPods (if using)
 - **mise** — task runner used by `mise run generate`. Install with `brew install mise` and follow the activation step in the [mise install guide](https://mise.jdx.dev/installing-mise.html).
@@ -165,7 +165,7 @@ The Sample App hosts the shared Vue sample app (`sample-apps/validations-sdk-sam
 1. Generate the project: `mise run generate`
 2. Open `validations.xcworkspace`
 3. Select the **SampleApp** scheme
-4. Choose a simulator or physical device (iOS 13.0+)
+4. Choose a simulator or physical device (iOS 15.0+)
 5. Build and run (⌘R)
 
 Xcode builds the Vue app automatically via the post-build script `Scripts/copy-webview.sh`. Configure `VITE_TRUORA_API_KEY` in `sample-apps/validations-sdk-sample-app/.env.local` before building; the script rebuilds when `.env.local` changes.
@@ -404,6 +404,9 @@ However it's worth noting that after removing this version you can **NEVER AGAIN
 
 ## SPM release
 Our pipeline automatically syncs the bitbucket repo with github in ``https://github.com/truora/truora-validations-sdk``
+
+The mirror's root `Package.swift` is copied from [`ios/spm/Package.swift`](../spm/Package.swift),
+so edit platforms and targets there instead of in the GitHub repo.
 
 Test with the official sample app by:
 

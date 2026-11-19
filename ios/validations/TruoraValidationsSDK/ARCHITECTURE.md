@@ -228,7 +228,9 @@ TruoraValidationsSDK/
 
 ## iOS Version Compatibility
 
-The SDK supports **iOS 13+** with the following strategies:
+The SDK supports **iOS 15+**. The code still carries the iOS 13-14
+fallbacks below from when the minimum was iOS 13; they are no longer
+reachable and can be removed:
 
 | Feature | iOS 13-14 | iOS 15+ |
 |---------|-----------|---------|

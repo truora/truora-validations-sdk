@@ -5,7 +5,7 @@ let package = Package(
     name: "TruoraValidationsSDK",
     defaultLocalization: "es",
     platforms: [
-        .iOS(.v13)
+        .iOS(.v15)
     ],
     products: [
         .library(

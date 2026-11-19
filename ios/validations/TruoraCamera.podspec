@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = "TruoraCamera"
-  s.version          = "1.3.4-alpha.1"
+  s.version          = "1.3.4-alpha.2"
   s.summary          = "Truora's camera and face detection module for identity verification"
   s.description      = <<-DESC
 TruoraCamera is an AVFoundation-based camera with on-device face detection (Vision/CoreML),
@@ -10,7 +10,7 @@ DESC
   s.documentation_url = "https://bitbucket.org/truora/truora-sdks/src/master/ios/validations/README.md"
   s.license          = { :type => "Proprietary", :text => "Copyright Truora. All rights reserved." }
   s.author           = { "Truora" => "truora-apps@truora.com" }
-  s.platform         = :ios, "13.0"
+  s.platform         = :ios, "15.0"
   s.swift_version    = "5.9"
   s.cocoapods_version = ">= 1.10.0"
 
